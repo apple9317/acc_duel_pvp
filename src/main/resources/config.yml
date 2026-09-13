@@ -1,0 +1,165 @@
+# ============================================================
+#  ACCDuel 竞技决斗场 - 主配置
+#  支持 Paper 1.21.x - 26.2
+#
+#  消息与文本使用 MiniMessage 格式：
+#    <red>红字</red> <green>绿字</green> <gold>金字</gold>
+#    <aqua>青字</aqua> <gray>灰字</gray> <bold>加粗</bold>
+#    <gradient:#55d6ff:#6a5cff>渐变</gradient>
+#  占位符用 {xxx} 表示，如 {player} {type} {score}
+# ============================================================
+
+# 消息前缀
+prefix: "<gradient:#55d6ff:#6a5cff>[竞技决斗场]</gradient> "
+
+# ---------------- 对战规则 ----------------
+match:
+  # 开局倒计时（秒）
+  countdown: 5
+  # 每局总回合数（建议奇数：先赢 ceil(rounds/2) 局者胜；1 = 一局定胜负）
+  rounds: 3
+  # 回合结束到下一回合开始的间隔（秒）
+  round-restart-delay: 5
+  # 是否取消除对手外的所有伤害（火焰/荆棘/环境等，保证公平 1v1）
+  cancel-outside-damage: true
+  # 是否关闭摔落伤害
+  fall-damage: false
+  # 是否关闭自然回血
+  natural-regen: false
+  # 是否关闭饥饿度消耗
+  hunger: false
+  # 进场比赛时的默认生命值（竞技类型可单独覆盖）
+  health: 20.0
+  # 进场比赛时的默认饥饿值
+  food-level: 20
+  # 比赛期间禁止丢物品
+  no-item-drop: true
+  # 比赛期间禁止拾取物品
+  no-item-pickup: true
+  # 决斗中退出服务器是否判负
+  forfeit-on-quit: true
+  # 决斗中是否阻止使用其他命令（白名单见 allowed-commands）
+  block-commands: true
+  # 决斗中允许使用的命令（第一段，不含斜杠）
+  allowed-commands: [duel, duelplayer, msg, tell, r, w, reply, whisper, message]
+
+# ---------------- 请求与匹配 ----------------
+queue:
+  # 是否启用随机匹配（/duel 选择类型加入匹配）
+  enabled: true
+  # 匹配检查间隔（秒）
+  check-interval: 2
+# 决斗请求有效期（秒）
+request-timeout: 60
+# 决斗冷却（秒，0 = 无冷却）
+duel-cooldown: 5
+
+# ---------------- 段位积分 ----------------
+rating:
+  # 是否启用积分系统
+  enabled: true
+  # 初始积分
+  start: 1000
+  # K 系数（越大积分变化越快）
+  k-factor: 32
+
+# ---------------- 观战 ----------------
+spectate:
+  enabled: true
+  # 观战者进入时是否广播
+  announce-join: true
+
+# ---------------- Geyser（基岩版）自动检测 ----------------
+# 插件会自动检测 Geyser-Spigot / Geyser 与 floodgate-bukkit，
+# 无需在插件配置中手动开关；这里的选项控制检测到后的行为。
+geyser:
+  # 是否在聊天/榜单中给基岩版玩家加上前缀标记
+  tag-bedrock: true
+  # 基岩版玩家前缀（MiniMessage 格式）
+  bedrock-tag: "<gray>[<aqua>BE</aqua>]</gray> "
+  # 比赛期间是否给基岩版玩家自动附加夜视（补偿基岩版渲染差异）
+  night-vision-during-match: true
+  # 基岩版玩家进入服务器时是否发送欢迎提示
+  welcome-message: true
+
+# ---------------- 数据保存 ----------------
+stats:
+  # 自动保存间隔（分钟）
+  autosave-minutes: 10
+
+# ---------------- 消息 ----------------
+messages:
+  only-player: "<red>该命令只能由玩家执行。</red>"
+  no-permission: "<red>你没有权限执行此操作。</red>"
+  help-header: "<gold>===== 竞技决斗场帮助 =====</gold>"
+  help-line: "<gray>/duel {cmd} <dark_gray>- {desc}</dark_gray></gray>"
+  menu-hint: "<gray>输入 <white>/duel</white> 打开类型选择界面，或 <white>/duelplayer &lt;玩家&gt;</white> 邀请决斗。</gray>"
+  player-not-found: "<red>玩家 {player} 不在线。</red>"
+  cannot-self: "<red>不能向自己发起决斗。</red>"
+  target-in-match: "<red>{player} 正在决斗中。</red>"
+  target-in-queue: "<red>{player} 正在匹配队列中。</red>"
+  you-in-match: "<red>你正在决斗中，无法进行此操作。</red>"
+  you-in-queue: "<red>你已在匹配队列中。</red>"
+  request-sent: "<green>已向 {player} 发起决斗请求（类型：{type}）。</green>"
+  request-received: "<yellow>{player} 向你发起决斗挑战！</yellow> <gray>点击 [接受] 或输入 /duel accept {player}</gray>"
+  request-timeout: "<gray>{player} 的决斗请求已过期。</gray>"
+  request-accepted: "<green>决斗请求已接受！正在进入竞技场...</green>"
+  request-denied: "<gray>已拒绝 {player} 的决斗请求。</gray>"
+  no-request: "<red>没有来自该玩家的决斗请求。</red>"
+  queue-join: "<green>已进入 {type} 匹配队列，请稍候...</green>"
+  queue-leave: "<gray>已退出匹配队列。</gray>"
+  queue-disabled: "<red>匹配功能未开启，请直接向玩家发起决斗。</red>"
+  queue-found: "<green>匹配成功！对手：{player}（类型：{type}）</green>"
+  match-countdown: "<bold><gold>{time}</gold></bold>"
+  match-fight: "<bold><green>战斗开始！</green></bold>"
+  match-round: "<gold>=== 第 {round} 回合 ===</gold>"
+  round-winner: "<aqua>第 {round} 回合由 {player} 获胜（当前比分 {score}）</aqua>"
+  match-win: "<green>你赢得了决斗！比分 {score}</green>"
+  match-lose: "<red>你输掉了决斗。比分 {score}</red>"
+  match-end-broadcast: "<gold>{winner} 在竞技场战胜了 {loser}（比分 {score}）</gold>"
+  forfeit: "<red>{player} 已放弃比赛，本回合由 {other} 获胜。</red>"
+  rating-win: "<gray>段位积分 <green>+{delta}</green>（{from} → {to}）</gray>"
+  rating-lose: "<gray>段位积分 <red>{delta}</red>（{from} → {to}）</gray>"
+  no-arena: "<red>没有可用的竞技场，请联系管理员配置。</red>"
+  arena-incomplete: "<red>竞技场 {id} 未配置完整（需要 pos1、pos2、spawn red、spawn blue）。</red>"
+  type-not-found: "<red>未找到竞技类型 {type}（用 /duel arena create &lt;名称&gt; &lt;类型&gt; 创建）。</red>"
+  no-arena-for-type: "<red>没有类型 {type} 的可用竞技场，请联系管理员配置。</red>"
+  no-types: "<red>还没有任何竞技类型。请管理员先用 /duel arena create &lt;名称&gt; &lt;类型&gt; 创建竞技场。</red>"
+  menu-main-title: "<gradient:#55d6ff:#6a5cff>竞技决斗场</gradient>"
+  menu-invite-title: "<gradient:#55d6ff:#6a5cff>选择类型邀请 {player}</gradient>"
+  spectate-join: "<gray>你正在观战 {player} 的决斗。</gray>"
+  spectate-announce: "<gray>{player} 正在观战这场决斗。</gray>"
+  spectate-none: "<red>{player} 当前没有进行中的决斗。</red>"
+  commands-blocked: "<red>决斗中不能使用该命令。</red>"
+  duel-cooldown: "<red>请稍后再试（冷却 {time} 秒）。</red>"
+  arena-created: "<green>竞技场 {id} 已创建（类型：{type}），请设置点位。</green>"
+  arena-type-created: "<green>已自动生成竞技类型配置 <white>{file}</white>（保护 III 钻套 + 锋利 I 钻剑 + 满背包治疗药水）。</green>"
+  arena-type-exists: "<gray>竞技类型 {type} 的配置已存在，直接沿用。</gray>"
+  arena-set: "<green>竞技场 {id} 的 {pos} 已设置为当前位置。</green>"
+  arena-removed: "<green>竞技场 {id} 已删除。</green>"
+  arena-not-found: "<red>竞技场 {id} 不存在。</red>"
+  arena-exists: "<red>竞技场 {id} 已存在。</red>"
+  arena-invalid-name: "<red>名称/类型只能包含小写字母、数字、下划线和连字符。</red>"
+  arena-invalid-y: "<red>无效的 Y 坐标：{y}</red>"
+  arena-list: "<gold>竞技场列表：</gold> <gray>{list}</gray>"
+  arena-create-usage: "<red>用法：/duel arena create &lt;名称&gt; &lt;类型&gt;</red>"
+  arena-set-usage: "<red>用法：/duel arena set &lt;竞技场&gt; &lt;pos1|pos2|miny|spawn red|spawn blue&gt; [y]</red>"
+  arena-set-which: "<red>有多个竞技场，请指定：/duel arena set &lt;竞技场&gt; {pos}</red>"
+  arena-remove-usage: "<red>用法：/duel arena remove &lt;竞技场&gt;</red>"
+  arena-help:
+    - "<gold>===== 竞技场创建流程 =====</gold>"
+    - "<gray>1) <white>/duel arena create &lt;名称&gt; &lt;类型&gt;</white>  创建竞技场（自动生成类型装备配置）</gray>"
+    - "<gray>2) 站到 1 号战斗出生点：<white>/duel arena set &lt;名称&gt; pos1</white></gray>"
+    - "<gray>3) 站到 2 号战斗出生点：<white>/duel arena set &lt;名称&gt; pos2</white></gray>"
+    - "<gray>4) 站到红方进入地图出生点：<white>/duel arena set &lt;名称&gt; spawn red</white></gray>"
+    - "<gray>5) 站到蓝方进入地图出生点：<white>/duel arena set &lt;名称&gt; spawn blue</white></gray>"
+    - "<gray>6) 可选：<white>set &lt;名称&gt; miny [y]</white>（虚空判负线）</gray>"
+    - "<gray>7) <white>/duel arena list</white>  确认竞技场为绿色（完整可用）</gray>"
+    - "<gray>只有一个竞技场时，<white>/duel arena set pos1</white> 可省略名称直接设置。</gray>"
+    - "<gray>类型装备配置在 <white>plugins/ACCDuel/kits/&lt;类型&gt;.yml</white>，可编辑后 /duel reload 生效。</gray>"
+  stats-header: "<gold>===== {player} 的决斗数据 =====</gold>"
+  stats-line: "<gray>{key}：<white>{value}</white></gray>"
+  top-header: "<gold>===== 决斗排行榜（按积分） =====</gold>"
+  top-line: "<gray>#{rank} {player} <white>- {rating} 分</white>（{wins}胜/{losses}负）</gray>"
+  reloaded: "<green>配置已重载。</green>"
+  geyser-welcome: "<aqua>检测到你使用基岩版进入服务器。</aqua> <gray>竞技决斗场已为你开启夜视补偿。</gray>"

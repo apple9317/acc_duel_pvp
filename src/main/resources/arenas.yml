@@ -1,0 +1,15 @@
+# ============================================================
+#  ACCDuel 竞技场配置
+#  在游戏内使用管理员命令配置：
+#    /duel arena create <id> <type>             创建竞技场（type 缺省为 no_debuff）
+#    /duel arena set <id> pos1                  站在 1 号战斗出生点执行
+#    /duel arena set <id> pos2                  站在 2 号战斗出生点执行
+#    /duel arena set <id> spawn red             站在红方进入地图出生点执行
+#    /duel arena set <id> spawn blue            站在蓝方进入地图出生点执行
+#    /duel arena set <id> miny <数值>           低于该 Y 坐标判负（可选，默认世界最低高度）
+#    /duel arena remove <id>                    删除竞技场
+#    /duel arena list                           查看竞技场
+#  或者直接编辑本文件后执行 /duel reload
+# ============================================================
+
+arenas: {}

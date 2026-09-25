@@ -2,11 +2,12 @@ package com.apple9317.accduel.command;
 
 import com.apple9317.accduel.ACCDuelPlugin;
 import com.apple9317.accduel.config.ConfigManager;
+import com.apple9317.accduel.dialog.DialogManager;
 import com.apple9317.accduel.gui.GuiManager;
-import com.apple9317.accduel.killeffect.KillEffect;
 import com.apple9317.accduel.setting.PlayerSettings;
 import com.apple9317.accduel.setting.SettingsManager;
 import com.apple9317.accduel.util.Txt;
+import com.apple9317.accduel.version.ViaManager;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -26,35 +27,32 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * /duelsetting 个人设置：
- * <ul>
- *   <li>开关他人决斗申请；</li>
- *   <li>选择个人击杀特效（default = 跟随服务器全局）。</li>
- * </ul>
- * Java 版箱子界面，基岩版原生表单。
+ * /duelsetting 个人设置：决斗申请、新版本 UI、个人击杀特效。
+ * 屏幕对话框（1.21.6+）/ 箱子界面 / 基岩表单。
  */
 public class SettingCommand implements CommandExecutor, TabCompleter {
 
-    /** 特效选项 id（顺序即界面从左到右）；击杀特效纯个人设置，默认无。 */
     private static final List<String> EFFECT_IDS = List.of(
             "lightning", "explosion", "heart", "soul", "fire", "death", "none");
-    /** 各选项图标。 */
     private static final List<Material> EFFECT_ICONS = List.of(
             Material.LIGHTNING_ROD, Material.TNT, Material.POPPY,
             Material.SOUL_LANTERN, Material.BLAZE_POWDER, Material.SKELETON_SKULL, Material.BARRIER);
-    /** 第三行 slots 20-26（7 格居中）。 */
-    private static final List<Integer> EFFECT_SLOTS = List.of(20, 21, 22, 23, 24, 25, 26);
+    private static final List<Integer> EFFECT_SUB_SLOTS = List.of(10, 11, 12, 13, 14, 15, 16);
+    private static final int ENTRY_SLOT = 22;
+    private static final int BACK_SLOT = 22;
 
     private final ACCDuelPlugin plugin;
     private final ConfigManager config;
     private final SettingsManager settings;
     private final GuiManager gui;
+    private final DialogManager dialogs;
 
     public SettingCommand(ACCDuelPlugin plugin) {
         this.plugin = plugin;
         this.config = plugin.getConfigManager();
         this.settings = plugin.getSettingsManager();
         this.gui = plugin.getGuiManager();
+        this.dialogs = plugin.getDialogManager();
     }
 
     @Override
@@ -67,16 +65,14 @@ public class SettingCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    /** 打开个人设置：基岩表单优先，否则箱子界面。 */
+    /** 打开个人设置：基岩表单 / 屏幕对话框 / 箱子界面。 */
     public void openSettings(Player player) {
         PlayerSettings ps = settings.get(player);
-        List<String> labels = new ArrayList<>();
-        for (String id : EFFECT_IDS) labels.add(displayLabel(id));
-        int selected = Math.max(0, EFFECT_IDS.indexOf(
-                ps.killEffect == null ? "none" : ps.killEffect.toLowerCase(Locale.ROOT)));
 
-        boolean bedrock = plugin.getGeyserManager().isBedrock(player);
-        if (bedrock) {
+        if (plugin.getGeyserManager().isBedrock(player)) {
+            List<String> labels = new ArrayList<>();
+            for (String id : EFFECT_IDS) labels.add(displayLabel(id));
+            int selected = Math.max(0, EFFECT_IDS.indexOf(currentEffect(ps)));
             boolean sent = plugin.getGeyserManager().sendSettingsForm(player, "个人设置",
                     ps.acceptRequests, ps.modernUi, labels, selected, (accept, modern, effect) -> {
                         if (accept != null) ps.acceptRequests = accept;
@@ -89,8 +85,30 @@ public class SettingCommand implements CommandExecutor, TabCompleter {
                     });
             if (sent) return;
         }
+
+        if (!plugin.getGeyserManager().isBedrock(player) && dialogs.isSupported()
+                && clientSupportsDialog(player) && ps.modernUi) {
+            List<Component> displays = new ArrayList<>();
+            for (String id : EFFECT_IDS) displays.add(Component.text(displayLabel(id)));
+            int selected = Math.max(0, EFFECT_IDS.indexOf(currentEffect(ps)));
+            boolean shown = dialogs.showSettings(player, Txt.mm("<gold>个人设置</gold>"),
+                    ps.acceptRequests, ps.modernUi, displays, EFFECT_IDS, selected,
+                    (save, accept, modern, effectId, audience) -> {
+                        if (!save) return;
+                        if (accept != null) ps.acceptRequests = accept;
+                        if (effectId != null && EFFECT_IDS.contains(effectId)) ps.killEffect = effectId;
+                        boolean oldModern = ps.modernUi;
+                        if (modern != null) ps.modernUi = modern;
+                        settings.save();
+                        if (oldModern && !ps.modernUi) openChestGui(player);
+                        else closeDialog(player);
+                    });
+            if (shown) return;
+        }
         openChestGui(player);
     }
+
+    // ---------------- 箱子界面（fallback） ----------------
 
     private void openChestGui(Player player) {
         gui.open(player, Txt.mm("<gold>个人设置</gold>"), 3, event -> {
@@ -100,84 +118,135 @@ public class SettingCommand implements CommandExecutor, TabCompleter {
             if (slot == 2) {
                 ps.modernUi = !ps.modernUi;
                 settings.save();
-                player.playSound(player.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
-                refresh(player);
+                click(player);
+                if (ps.modernUi && dialogs.isSupported() && clientSupportsDialog(player)) {
+                    openSettings(player);
+                    return;
+                }
+                updateMainInPlace(player);
                 return;
             }
             if (slot == 4) {
                 ps.acceptRequests = !ps.acceptRequests;
                 settings.save();
-                player.playSound(player.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
-                refresh(player);
+                click(player);
+                updateMainInPlace(player);
                 return;
             }
-            int idx = EFFECT_SLOTS.indexOf(slot);
-            if (idx >= 0) {
-                ps.killEffect = EFFECT_IDS.get(idx);
-                settings.save();
-                player.playSound(player.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1.2f);
-                refresh(player);
-            }
+            if (slot == ENTRY_SLOT) openEffectGui(player);
         });
         GuiManager.GuiSession session = gui.session(player.getUniqueId());
         if (session == null) return;
-        render(player, session.inventory);
+        renderMain(player, session.inventory);
     }
 
-    /** 刷新：重新打开当前界面（GUI 内容随设置变化）。 */
-    private void refresh(Player player) {
-        gui.closeAll(player);
-        openChestGui(player);
+    private void updateMainInPlace(Player player) {
+        GuiManager.GuiSession s = gui.session(player.getUniqueId());
+        if (s != null) renderMain(player, s.inventory);
     }
 
-    private void render(Player player, Inventory inv) {
+    private void renderMain(Player player, Inventory inv) {
         PlayerSettings ps = settings.get(player);
 
-        // slot 2：新版本UI 开关
-        var uiItem = new ItemStack(Material.PAINTING);
-        ItemMeta uim = uiItem.getItemMeta();
-        if (uim != null) {
-            uim.displayName(Txt.mm("<yellow>新版本UI</yellow>"));
-            uim.lore(Arrays.asList(
-                    Txt.mm("当前：" + (ps.modernUi ? "<green>开启</green>" : "<red>关闭</red>")),
-                    Txt.mm("<gray>仅 1.21.6+ 客户端有效，点击切换</gray>")));
-            uiItem.setItemMeta(uim);
-        }
-        inv.setItem(2, uiItem);
+        inv.setItem(2, simpleItem(Material.PAINTING, "<yellow>新版本UI</yellow>", Arrays.asList(
+                Txt.mm("当前：" + onOff(ps.modernUi)),
+                Txt.mm("<gray>仅 1.21.6+ 客户端有效，点击切换</gray>"))));
 
-        // slot 4：申请开关
-        var toggle = new ItemStack(ps.acceptRequests ? Material.LIME_DYE : Material.GRAY_DYE);
-        ItemMeta tm = toggle.getItemMeta();
-        if (tm != null) {
-            tm.displayName(Txt.mm("<yellow>决斗申请</yellow>"));
-            tm.lore(Arrays.asList(
-                    Txt.mm("当前：" + (ps.acceptRequests ? "<green>开启</green>" : "<red>关闭</red>")),
-                    Txt.mm("<gray>点击切换</gray>")));
-            toggle.setItemMeta(tm);
-        }
-        inv.setItem(4, toggle);
+        inv.setItem(4, simpleItem(ps.acceptRequests ? Material.LIME_DYE : Material.GRAY_DYE,
+                "<yellow>决斗申请</yellow>", Arrays.asList(
+                        Txt.mm("当前：" + onOff(ps.acceptRequests)),
+                        Txt.mm("<gray>点击切换</gray>"))));
 
-        // 特效选项
-        String current = ps.killEffect == null ? "none" : ps.killEffect.toLowerCase(Locale.ROOT);
+        inv.setItem(ENTRY_SLOT, simpleItem(Material.NETHER_STAR, "<yellow>击杀特效</yellow>", Arrays.asList(
+                Txt.mm("当前：<green>" + displayLabel(currentEffect(ps)) + "</green>"),
+                Txt.mm("<gray>点击打开选择界面</gray>"))));
+
+        GuiManager.decorate(inv, 3, Txt.mm("<dark_gray> </dark_gray>"));
+    }
+
+    private void openEffectGui(Player player) {
+        gui.open(player, Txt.mm("<gold>选择击杀特效</gold>"), 3, event -> {
+            event.setCancelled(true);
+            int slot = event.getRawSlot();
+            int idx = EFFECT_SUB_SLOTS.indexOf(slot);
+            if (idx >= 0) {
+                settings.get(player).killEffect = EFFECT_IDS.get(idx);
+                settings.save();
+                click(player);
+                openSettings(player);
+                return;
+            }
+            if (slot == BACK_SLOT) openSettings(player);
+        });
+        GuiManager.GuiSession session = gui.session(player.getUniqueId());
+        if (session == null) return;
+        Inventory inv = session.inventory;
+
+        String current = currentEffect(settings.get(player));
         for (int i = 0; i < EFFECT_IDS.size(); i++) {
             String id = EFFECT_IDS.get(i);
-            var item = new ItemStack(EFFECT_ICONS.get(i));
+            boolean chosen = id.equals(current);
+            ItemStack item = simpleItem(EFFECT_ICONS.get(i),
+                    (chosen ? "<green>" : "<gray>") + displayLabel(id) + (chosen ? " ✓</green>" : "</gray>"),
+                    List.of(Txt.mm(chosen ? "<green>已选中</green>" : "<gray>点击选择</gray>")));
             ItemMeta m = item.getItemMeta();
-            if (m != null) {
-                boolean chosen = id.equals(current);
-                m.displayName(Txt.mm((chosen ? "<green>" : "<gray>") + displayLabel(id) + (chosen ? " ✓</green>" : "</gray>")));
-                List<Component> lore = new ArrayList<>();
-                lore.add(Txt.mm(chosen ? "<green>已选中</green>" : "<gray>点击选择</gray>"));
-                m.lore(lore);
-                if (chosen) {
-                    m.addEnchant(Enchantment.UNBREAKING, 1, true);
-                    m.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-                }
+            if (chosen && m != null) {
+                m.addEnchant(Enchantment.UNBREAKING, 1, true);
+                m.addItemFlags(ItemFlag.HIDE_ENCHANTS);
                 item.setItemMeta(m);
             }
-            inv.setItem(EFFECT_SLOTS.get(i), item);
+            inv.setItem(EFFECT_SUB_SLOTS.get(i), item);
         }
+        inv.setItem(BACK_SLOT, simpleItem(Material.ARROW, "<yellow>返回</yellow>",
+                List.of(Txt.mm("<gray>返回个人设置</gray>"))));
         GuiManager.decorate(inv, 3, Txt.mm("<dark_gray> </dark_gray>"));
+    }
+
+    // ---------------- 工具 ----------------
+
+    private static String currentEffect(PlayerSettings ps) {
+        return ps.killEffect == null ? "none" : ps.killEffect.toLowerCase(Locale.ROOT);
+    }
+
+    private static String onOff(boolean on) {
+        return on ? "<green>开启</green>" : "<red>关闭</red>";
+    }
+
+    private static ItemStack simpleItem(Material material, String name, List<Component> lore) {
+        var item = new ItemStack(material);
+        ItemMeta m = item.getItemMeta();
+        if (m != null) {
+            m.displayName(Txt.mm(name));
+            m.lore(lore);
+            item.setItemMeta(m);
+        }
+        return item;
+    }
+
+    private static void click(Player p) {
+        p.playSound(p.getLocation(), org.bukkit.Sound.UI_BUTTON_CLICK, 1f, 1f);
+    }
+
+    private void closeDialog(Player p) {
+        try {
+            p.getClass().getMethod("closeDialog").invoke(p);
+        } catch (Throwable t) {
+            p.closeInventory();
+        }
+    }
+
+    private boolean clientSupportsDialog(Player p) {
+        if (!viaPresent()) return true;
+        return ViaManager.clientAtLeast1216(p);
+    }
+
+    private static boolean viaPresent() {
+        try {
+            Class.forName("com.viaversion.viaversion.api.Via");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     private static String displayLabel(String id) {
@@ -193,12 +262,10 @@ public class SettingCommand implements CommandExecutor, TabCompleter {
         };
     }
 
-    /** 基岩表单返回的是中文标签，映射回 id。 */
     private static String mapLabelToId(String label) {
         for (String id : EFFECT_IDS) {
             if (displayLabel(id).equals(label)) return id;
         }
-        // 兼容直接返回 id 的情况
         return EFFECT_IDS.contains(label) ? label : null;
     }
 

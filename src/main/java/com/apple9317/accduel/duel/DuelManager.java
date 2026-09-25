@@ -162,7 +162,7 @@ public class DuelManager {
 
     /** /duel 主菜单：选择类型加入匹配。 */
     public void openMainMenu(Player p) {
-        openTypeMenu(p, config.raw("menu-main-title"), type -> {
+        openTypeMenu(p, config.raw("menu-main-title"), true, type -> {
             Player current = Bukkit.getPlayer(p.getUniqueId());
             if (current != null) joinQueue(current, type);
         });
@@ -170,7 +170,7 @@ public class DuelManager {
 
     /** /duelplayer <玩家>：选择类型后向对方发起该类型的决斗。 */
     public void openInviteMenu(Player p, Player target) {
-        openTypeMenu(p, config.raw("menu-invite-title", Map.of("player", target.getName())), type -> {
+        openTypeMenu(p, config.raw("menu-invite-title", Map.of("player", target.getName())), false, type -> {
             Player current = Bukkit.getPlayer(p.getUniqueId());
             Player currentTarget = Bukkit.getPlayer(target.getUniqueId());
             if (current != null && currentTarget != null) requestDuel(current, currentTarget, type);
@@ -198,7 +198,7 @@ public class DuelManager {
      * 类型选择界面：Java 版打开箱子界面；基岩版优先发送原生表单（失败自动回退箱子界面，
      * Geyser 会把箱子界面翻译成基岩 UI）。
      */
-    private void openTypeMenu(Player player, String titleRaw, Consumer<String> onPick) {
+    private void openTypeMenu(Player player, String titleRaw, boolean isQueue, Consumer<String> onPick) {
         List<Kit> types = selectableTypes(player);
         if (types.isEmpty()) {
             config.send(player, kits.getTypes().isEmpty() ? "no-types" : "no-kit-permission");
@@ -206,9 +206,13 @@ public class DuelManager {
         }
         if (geyser.isBedrock(player)) {
             List<String> ids = new ArrayList<>();
-            for (Kit kit : types) ids.add(kit.id);
+            List<String> displays = new ArrayList<>();
+            for (Kit kit : types) {
+                ids.add(kit.id);
+                displays.add(kit.id + "（" + queueCount(kit.id) + " 人匹配中）");
+            }
             // 表单回调可能延迟到玩家已切换状态之后，需重新校验
-            if (geyser.sendTypeForm(player, titleRaw, ids, picked -> {
+            if (geyser.sendTypeForm(player, titleRaw, displays, ids, picked -> {
                 Player current = Bukkit.getPlayer(player.getUniqueId());
                 if (current != null) onPick.accept(picked);
             })) {
@@ -221,10 +225,13 @@ public class DuelManager {
             List<Component> labels = new ArrayList<>();
             List<String> ids = new ArrayList<>();
             for (Kit kit : types) {
-                labels.add(Txt.mm(kit.displayNameRaw()));
+                labels.add(Txt.mm(kit.displayNameRaw()
+                        + " <dark_gray>- <yellow>" + queueCount(kit.id) + " 人匹配中</yellow></dark_gray>"));
                 ids.add(kit.id);
             }
-            if (dialogs.showButtonMenu(player, Txt.mm(titleRaw), labels, ids, picked -> {
+            Component exitLabel = Txt.mm(isQueue ? "<red>取消匹配</red>" : "<red>取消</red>");
+            String exitCommand = isQueue ? "/duel leave" : null;
+            if (dialogs.showButtonMenu(player, Txt.mm(titleRaw), labels, ids, exitLabel, exitCommand, picked -> {
                 Player current = Bukkit.getPlayer(player.getUniqueId());
                 if (current != null) onPick.accept(picked);
             })) {
@@ -232,15 +239,22 @@ public class DuelManager {
             }
         }
         int rows = Math.min(6, Math.max(1, (types.size() + 8) / 9));
+        if (types.size() >= rows * 9 && rows < 6) rows++;  // 填满则加一行放取消按钮
         int capacity = rows * 9;
-        if (types.size() > capacity) {
-            plugin.getLogger().warning("竞技类型数量（" + types.size() + "）超过界面容量（" + capacity
-                    + "），仅显示前 " + capacity + " 个");
+        int cancelSlot = capacity - 1;
+        int maxTypes = Math.min(types.size(), capacity - 1);
+        if (types.size() > maxTypes) {
+            plugin.getLogger().warning("竞技类型过多，仅显示前 " + maxTypes + " 个");
         }
-        List<Kit> shown = types.size() > capacity ? new ArrayList<>(types.subList(0, capacity)) : types;
+        List<Kit> shown = new ArrayList<>(types.subList(0, maxTypes));
         gui.open(player, Txt.mm(titleRaw), rows, event -> {
             event.setCancelled(true);
             int slot = event.getRawSlot();
+            if (slot == cancelSlot) {
+                gui.closeAll(player);
+                if (isQueue) leaveQueue(player);
+                return;
+            }
             if (slot >= 0 && slot < shown.size()) {
                 gui.closeAll(player);
                 onPick.accept(shown.get(slot).id);
@@ -253,17 +267,33 @@ public class DuelManager {
         for (int i = 0; i < shown.size(); i++) {
             inv.setItem(i, typeIcon(shown.get(i)));
         }
+        inv.setItem(cancelSlot, cancelIcon(isQueue));
         GuiManager.decorate(inv, rows, Txt.mm("<dark_gray> </dark_gray>"));
+    }
+
+    /** 取消按钮图标。 */
+    private ItemStack cancelIcon(boolean isQueue) {
+        ItemStack item = new ItemStack(Material.BARRIER);
+        ItemMeta m = item.getItemMeta();
+        if (m != null) {
+            m.displayName(Txt.mm(isQueue ? "<red>取消匹配</red>" : "<red>取消</red>"));
+            m.lore(List.of(Txt.mm("<gray>点击" + (isQueue ? "退出匹配队列" : "关闭界面") + "</gray>")));
+            item.setItemMeta(m);
+        }
+        return item;
     }
 
     private ItemStack typeIcon(Kit kit) {
         Material material = Material.matchMaterial(kit.icon == null ? "" : kit.icon.toUpperCase(Locale.ROOT));
         if (material == null) material = Material.DIAMOND_SWORD;
         ItemStack item = new ItemStack(material);
+        // 药水图标应用基础类型，否则显示普通水瓶
+        kits.applyBasePotion(item, kit.basePotion);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Txt.parse(kit.displayNameRaw()));
             List<Component> lore = new ArrayList<>(Txt.parseAll(kit.description));
+            lore.add(Txt.mm("<yellow>匹配中：" + queueCount(kit.id) + " 人</yellow>"));
             lore.add(Txt.mm("<green>点击选择</green>"));
             meta.lore(lore);
             item.setItemMeta(meta);
@@ -456,6 +486,14 @@ public class DuelManager {
             this.type = type;
             this.since = System.currentTimeMillis();
         }
+    }
+    /** 某类型当前匹配中的人数。 */
+    public int queueCount(String type) {
+        int n = 0;
+        for (QueueEntry e : queue.values()) {
+            if (type.equals(e.type)) n++;
+        }
+        return n;
     }
 
     public boolean joinQueue(Player p, String type) {

@@ -308,7 +308,11 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
             return;
         }
         String id = args[2].toLowerCase(Locale.ROOT);
-        String type = args.length >= 4 ? args[3].toLowerCase(Locale.ROOT) : "no_debuff";
+        if (args.length < 4) {
+            config.sendRaw(sender, "arena-create-usage");
+            return;
+        }
+        String type = args[3].toLowerCase(Locale.ROOT);
         if (!id.matches("[a-z0-9_\\-]+") || !type.matches("[a-z0-9_\\-]+")) {
             config.sendRaw(sender, "arena-invalid-name");
             return;
@@ -503,10 +507,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
         String action = args[1].toLowerCase(Locale.ROOT);
         if (args.length == 3) {
             switch (action) {
-                case "set" -> {
-                    addPrefix(out, args[2], POS_KEYS);    // 省略 id 形式：/duel arena set <key>
-                    addPrefix(out, args[2], arenaIds());  // 完整形式：/duel arena set <id> <key>
-                }
+                case "set" -> addPrefix(out, args[2], arenaIds());  // /duel arena set <名称> <key>
                 case "remove" -> addPrefix(out, args[2], arenaIds());
                 // create 的名称自由输入，不补
             }

@@ -475,6 +475,7 @@ public class Match {
             matchKills.merge(winnerU, 1, Integer::sum);
         }
         playKillEffect(killer, victim);
+        broadcastTaunt(winnerU, vu);
         if (bedAlive(vu)) {
             scheduleBedRespawn(vu);
         } else {
@@ -499,6 +500,12 @@ public class Match {
         }, com.apple9317.accduel.kit.special_kit.BedFight.RESPAWN_DELAY);
     }
 
+    /** 击杀后播报一句温和有趣的嘲讽。 */
+    private void broadcastTaunt(UUID winnerU, UUID loserU) {
+        net.kyori.adventure.text.Component t =
+                config.randomTaunt(nameOf(winnerU), nameOf(loserU));
+        if (t != null) plugin.getServer().broadcast(t);
+    }
     /** 按击杀者个人设置播放击杀特效。 */
     private void playKillEffect(Player killer, Player victim) {
         String effectId = KillEffect.NONE_ID;
@@ -546,6 +553,7 @@ public class Match {
     private void scoreRound(UUID winnerU) {
         if (state == State.ENDED) return;
         if (winnerU.equals(u1)) score1++; else score2++;
+        broadcastTaunt(winnerU, winnerU.equals(u1) ? u2 : u1);
         int needed = totalRounds / 2 + 1;
         if (score1 >= needed || score2 >= needed) {
             finish(winnerU, false);
@@ -615,9 +623,6 @@ public class Match {
             if (!forfeit && config.getBoolean("match.broadcast-result", true)) {
                 config.broadcast("match-end-broadcast", Map.of(
                         "winner", winnerName, "loser", loserName, "score", score));
-                net.kyori.adventure.text.Component taunt =
-                        config.randomTaunt(winnerName, loserName);
-                if (taunt != null) plugin.getServer().broadcast(taunt);
             }
         } finally {
             // 结算过程中任何异常都不能让比赛对象滞留在活动列表里

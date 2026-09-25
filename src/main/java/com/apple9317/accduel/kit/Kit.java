@@ -15,6 +15,8 @@ public class Kit {
     public String displayName;
     /** 选择界面图标（材质名）。 */
     public String icon;
+    /** 图标药水的基础类型（icon 为药水时生效），如 healing / strong_healing。 */
+    public String basePotion;
     public List<String> description = new ArrayList<>();
     /** 使用所需权限，空 = 所有玩家可用。 */
     public String permission = "";

@@ -4,10 +4,10 @@
 # 可用字段：display-name / icon / description / permission / enabled
 #          rules / attributes / effects / items
 # ================================================
-display-name: "<aqua>PureUHC</aqua> <gray>(纯粹极限生存)</gray>"
-icon: DIAMOND_BOOTS
+display-name: "<white>Single</white> <gray>(单刀赴会)</gray>"
+icon: IRON_SWORD
 description:
-  - "<gray>顾名思义,无需技巧,只有鱼竿</gray>"
+  - "<gray>拼刀的机会来了!</gray>"
 permission: ""
 enabled: true
 rules:

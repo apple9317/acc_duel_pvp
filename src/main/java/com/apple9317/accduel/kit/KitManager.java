@@ -51,9 +51,44 @@ public class KitManager {
     public void load() throws IOException {
         this.kitsFolder = plugin.getDataFolder().toPath().resolve("kits");
         Files.createDirectories(kitsFolder);
-        // 服务端首次运行时默认生成 kits/no_debuff.yml（已存在则不覆盖）
-        ensureTypeFile("no_debuff");
+        // 释放 jar 内 kits 下全部默认类型（已存在的自定义文件不覆盖）
+        extractBundledKits();
         loadTypes();
+    }
+
+    /** 枚举 jar 内 kits/*.yml，缺失的释放（目标文件名统一小写，已存在不覆盖）。 */
+    private void extractBundledKits() {
+        boolean any = false;
+        try {
+            java.io.File jar = new java.io.File(plugin.getClass().getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            try (java.util.jar.JarFile jf = new java.util.jar.JarFile(jar)) {
+                java.util.Enumeration<java.util.jar.JarEntry> it = jf.entries();
+                while (it.hasMoreElements()) {
+                    java.util.jar.JarEntry e = it.nextElement();
+                    String name = e.getName();
+                    if (name.startsWith("kits/") && name.endsWith(".yml")) {
+                        String id = name.substring("kits/".length(), name.length() - 4)
+                                .toLowerCase(Locale.ROOT);
+                        Path target = typeFile(id);
+                        if (!Files.exists(target)) {
+                            Files.createDirectories(kitsFolder);
+                            try (InputStream in = jf.getInputStream(e)) {
+                                Files.copy(in, target);
+                            }
+                        }
+                        any = true;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("枚举内置 kits 失败: " + t.getMessage());
+        }
+        // 兜底：枚举失败时至少保证两个内置类型
+        if (!any) {
+            ensureTypeFile("no_debuff");
+            ensureTypeFile("bedfight");
+        }
     }
 
     public void reload() {
@@ -269,21 +304,36 @@ public class KitManager {
         return stack;
     }
 
-    /** 解析基础药水类型（支持新版枚举名与旧版/效果 id 别名）。 */
+    /** 解析基础药水类型（支持标准枚举与常见别名、等级）。 */
     private static org.bukkit.potion.PotionType matchPotionType(String raw) {
-        String norm = raw.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
+        String norm = raw.trim().toUpperCase(Locale.ROOT)
+                .replace(' ', '_').replace('-', '_');
         try {
             return org.bukkit.potion.PotionType.valueOf(norm);
         } catch (IllegalArgumentException e) {
             return switch (norm) {
-                case "INSTANT_HEALTH", "HEAL" -> org.bukkit.potion.PotionType.HEALING;
-                case "INSTANT_HEALTH_2", "STRONG_HEAL" -> org.bukkit.potion.PotionType.STRONG_HEALING;
-                case "INSTANT_DAMAGE", "HARM" -> org.bukkit.potion.PotionType.HARMING;
-                case "INSTANT_DAMAGE_2", "STRONG_HARM" -> org.bukkit.potion.PotionType.STRONG_HARMING;
+                case "HEAL", "INSTANT_HEALTH", "HEALING_1", "HEAL1" -> org.bukkit.potion.PotionType.HEALING;
+                case "STRONG_HEAL", "INSTANT_HEALTH_2", "HEALING_2", "HEAL2" -> org.bukkit.potion.PotionType.STRONG_HEALING;
+                case "HARM", "INSTANT_DAMAGE", "HARMING_1", "HARM1" -> org.bukkit.potion.PotionType.HARMING;
+                case "STRONG_HARM", "INSTANT_DAMAGE_2", "HARMING_2", "HARM2" -> org.bukkit.potion.PotionType.STRONG_HARMING;
                 case "JUMP" -> org.bukkit.potion.PotionType.LEAPING;
                 default -> null;
             };
         }
+    }
+
+    /** 给药水物品设置基础类型（决定外观/效果），成功返回 true。 */
+    public boolean applyBasePotion(ItemStack stack, String base) {
+        if (stack == null || base == null || base.isEmpty()) return false;
+        if (!(stack.getItemMeta() instanceof PotionMeta meta)) return false;
+        org.bukkit.potion.PotionType type = matchPotionType(base);
+        if (type == null) {
+            plugin.getLogger().warning("药水基础类型无效: " + base);
+            return false;
+        }
+        meta.setBasePotionType(type);
+        stack.setItemMeta(meta);
+        return true;
     }
 
     private static Color parseColor(String s) {

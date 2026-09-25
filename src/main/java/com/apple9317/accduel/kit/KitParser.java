@@ -31,6 +31,7 @@ public final class KitParser {
         kit.id = id;
         kit.displayName = str(m, "display-name", id);
         kit.icon = str(m, "icon", "DIAMOND_SWORD");
+        kit.basePotion = str(m, "base-potion", null);
         kit.description = strList(m, "description");
         kit.permission = str(m, "permission", "");
         kit.enabled = bool(m, "enabled", true);

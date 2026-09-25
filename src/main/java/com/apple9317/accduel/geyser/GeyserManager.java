@@ -43,8 +43,10 @@ public class GeyserManager {
         detectGeyser();
         detectFloodgate();
         if (geyserPresent || floodgatePresent) {
-            plugin.getLogger().info("检测到基岩版互通插件: "
-                    + (geyserPresent ? "Geyser" : "") + (floodgatePresent ? " + Floodgate" : "")
+            java.util.List<String> found = new java.util.ArrayList<>();
+            if (geyserPresent) found.add("Geyser");
+            if (floodgatePresent) found.add("Floodgate");
+            plugin.getLogger().info("检测到基岩版互通插件: " + String.join(" + ", found)
                     + "，已启用基岩版玩家识别与原生表单");
         } else {
             plugin.getLogger().info("未检测到 Geyser/Floodgate（不影响本插件运行，基岩版识别功能关闭）");
@@ -76,8 +78,18 @@ public class GeyserManager {
     }
 
     private void detectFloodgate() {
-        Plugin floodgate = Bukkit.getPluginManager().getPlugin("floodgate-bukkit");
+        // Floodgate 插件实际注册名为 floodgate（floodgate-bukkit 是模块名）
+        Plugin floodgate = Bukkit.getPluginManager().getPlugin("floodgate");
+        if (floodgate == null) floodgate = Bukkit.getPluginManager().getPlugin("floodgate-bukkit");
         floodgatePresent = floodgate != null;
+        // 插件管理器找不到时，用 API 类是否存在兜底
+        if (!floodgatePresent) {
+            try {
+                Class.forName("org.geysermc.floodgate.api.FloodgateApi");
+                floodgatePresent = true;
+            } catch (Throwable ignored) {
+            }
+        }
         if (!floodgatePresent) return;
         try {
             Class<?> apiClass = Class.forName("org.geysermc.floodgate.api.FloodgateApi");
@@ -87,6 +99,31 @@ public class GeyserManager {
             plugin.getLogger().warning("Floodgate API 反射初始化失败（部分功能不可用）: " + t.getMessage());
             floodgateIsPlayer = null;
         }
+    }
+
+    /** 获取可发送表单的目标（Geyser Connection 或 FloodgatePlayer），找不到返回 null。 */
+    private Object formTarget(Player player) {
+        UUID uuid = player.getUniqueId();
+        if (geyserPresent) {
+            try {
+                Object api = Class.forName("org.geysermc.geyser.api.GeyserApi")
+                        .getMethod("api").invoke(null);
+                Object conn = api.getClass().getMethod("connectionByUuid", UUID.class)
+                        .invoke(api, uuid);
+                if (conn != null) return conn;
+            } catch (Throwable ignored) {
+            }
+        }
+        if (floodgatePresent && floodgateApiMethod != null) {
+            try {
+                Object api = floodgateApiMethod.invoke(null);
+                Object fp = api.getClass().getMethod("getFloodgatePlayer", UUID.class)
+                        .invoke(api, uuid);
+                if (fp != null) return fp;
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     /** 判断是否为基岩版玩家（Floodgate 优先，Geyser 新/旧 API 兜底）。 */
@@ -146,12 +183,11 @@ public class GeyserManager {
      *
      * @return true = 表单已成功发送；false = 任何环节失败（调用方应回退到箱子界面）。
      */
-    public boolean sendTypeForm(Player player, String title, List<String> options, Consumer<String> onPick) {
-        if (!geyserPresent || options == null || options.isEmpty()) return false;
+    public boolean sendTypeForm(Player player, String title, List<String> options,
+                                List<String> values, Consumer<String> onPick) {
+        if ((!geyserPresent && !floodgatePresent) || options == null || options.isEmpty()) return false;
         try {
-            Class<?> apiClass = Class.forName("org.geysermc.geyser.api.GeyserApi");
-            Object api = apiClass.getMethod("api").invoke(null);
-            Object conn = api.getClass().getMethod("connectionByUuid", UUID.class).invoke(api, player.getUniqueId());
+            Object conn = formTarget(player);
             if (conn == null) return false;
 
             // cumulus CustomForm.builder()（运行时由 Geyser 提供实现）
@@ -162,13 +198,19 @@ public class GeyserManager {
             builder = invoke1(builder, "title", title);
             if (builder == null) return false;
 
-            // 下拉：现代 cumulus 用 addDropdown，旧版用 dropdown（均支持 varargs String...）
+            // 下拉用显示标签 options
             Object dropdownBuilder = invokeVarargs(builder, new String[]{"addDropdown", "dropdown"}, options);
             if (dropdownBuilder == null) return false;
             builder = dropdownBuilder;
 
-            // build：优先 build(Consumer)（现代 cumulus），否则 build() 后 setResponseHandler
-            Object form = buildForm(builder, new FormHandler(onPick));
+            // 选中显示标签后映射回实际 id（values）
+            final List<String> opts = options;
+            final List<String> vals = values == null ? options : values;
+            Consumer<String> mapped = label -> {
+                int idx = opts.indexOf(label);
+                onPick.accept(idx >= 0 ? vals.get(idx) : label);
+            };
+            Object form = buildForm(builder, new FormHandler(mapped));
             if (form == null) return false;
 
             // 发送：Connection#sendForm(Form)（新 API）
@@ -289,10 +331,9 @@ public class GeyserManager {
     public boolean sendRequestForm(Player target, String title, String content,
                                    String acceptLabel, String denyLabel,
                                    Consumer<Boolean> onChoice) {
-        if (!geyserPresent) return false;
+        if (!geyserPresent && !floodgatePresent) return false;
         try {
-            Object api = Class.forName("org.geysermc.geyser.api.GeyserApi").getMethod("api").invoke(null);
-            Object conn = api.getClass().getMethod("connectionByUuid", UUID.class).invoke(api, target.getUniqueId());
+            Object conn = formTarget(target);
             if (conn == null) return false;
 
             Class<?> simpleFormClass = Class.forName("org.geysermc.cumulus.form.SimpleForm");
@@ -352,10 +393,9 @@ public class GeyserManager {
                                     boolean modernUi,
                                     List<String> effectOptions, int selectedIndex,
                                     SettingsCallback onResult) {
-        if (!geyserPresent) return false;
+        if (!geyserPresent && !floodgatePresent) return false;
         try {
-            Object api = Class.forName("org.geysermc.geyser.api.GeyserApi").getMethod("api").invoke(null);
-            Object conn = api.getClass().getMethod("connectionByUuid", UUID.class).invoke(api, player.getUniqueId());
+            Object conn = formTarget(player);
             if (conn == null) return false;
 
             Class<?> customFormClass = Class.forName("org.geysermc.cumulus.form.CustomForm");

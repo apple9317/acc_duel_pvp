@@ -28,6 +28,8 @@ public class ArenaManager {
 
     private final ACCDuelPlugin plugin;
     private final Map<String, Arena> arenas = new LinkedHashMap<>();
+    /** load 时保留每个竞技场在 yml 里的原始点位数据，save 时用于兜底，避免内存解析失败把已有点位擦掉。 */
+    private final Map<String, ConfigurationSection> rawSections = new java.util.HashMap<>();
     private File file;
     private boolean dirty;
 
@@ -37,6 +39,7 @@ public class ArenaManager {
 
     public void load() {
         arenas.clear();
+        rawSections.clear();
         file = new File(plugin.getDataFolder(), "arenas.yml");
         if (!file.exists()) {
             try {
@@ -54,6 +57,7 @@ public class ArenaManager {
             Arena arena = parse(id, s);
             if (arena == null) continue;
             arenas.put(arena.id, arena);
+            rawSections.put(arena.id, s);
             plugin.getLogger().info("已加载竞技场: " + arena.id + statusSuffix(arena));
         }
     }
@@ -81,7 +85,7 @@ public class ArenaManager {
     }
 
     private static boolean usesWorld(Arena arena, String worldName) {
-        for (Arena.Point p : new Arena.Point[]{arena.pos1, arena.pos2, arena.spawnRed, arena.spawnBlue}) {
+        for (Arena.Point p : new Arena.Point[]{arena.pos1, arena.pos2, arena.spawnRed, arena.spawnBlue, arena.bedRed, arena.bedBlue}) {
             if (p != null && worldName.equals(p.world)) return true;
         }
         return false;
@@ -92,13 +96,18 @@ public class ArenaManager {
         YamlConfiguration config = new YamlConfiguration();
         for (Arena arena : arenas.values()) {
             String base = "arenas." + arena.id;
+            ConfigurationSection raw = rawSections.get(arena.id);
             config.set(base + ".type", arena.type);
             config.set(base + ".world", arena.world);
-            config.set(base + ".pos1", arena.pos1 == null ? null : arena.pos1.toMap());
-            config.set(base + ".pos2", arena.pos2 == null ? null : arena.pos2.toMap());
-            config.set(base + ".spawn-red", arena.spawnRed == null ? null : arena.spawnRed.toMap());
-            config.set(base + ".spawn-blue", arena.spawnBlue == null ? null : arena.spawnBlue.toMap());
+            // 内存点位为 null 时，保留 yml 里原有的点位数据，避免解析失败静默擦除
+            config.set(base + ".pos1", arena.pos1 == null ? (raw == null ? null : sectionMap(raw, "pos1")) : arena.pos1.toMap());
+            config.set(base + ".pos2", arena.pos2 == null ? (raw == null ? null : sectionMap(raw, "pos2")) : arena.pos2.toMap());
+            config.set(base + ".spawn-red", arena.spawnRed == null ? (raw == null ? null : sectionMap(raw, "spawn-red")) : arena.spawnRed.toMap());
+            config.set(base + ".spawn-blue", arena.spawnBlue == null ? (raw == null ? null : sectionMap(raw, "spawn-blue")) : arena.spawnBlue.toMap());
+            config.set(base + ".bed-red", arena.bedRed == null ? (raw == null ? null : sectionMap(raw, "bed-red")) : arena.bedRed.toMap());
+            config.set(base + ".bed-blue", arena.bedBlue == null ? (raw == null ? null : sectionMap(raw, "bed-blue")) : arena.bedBlue.toMap());
             if (arena.minY != null) config.set(base + ".miny", arena.minY);
+            else if (raw != null && raw.contains("miny")) config.set(base + ".miny", raw.get("miny"));
             config.set(base + ".enabled", arena.enabled);
         }
         try {
@@ -125,10 +134,12 @@ public class ArenaManager {
         arena.id = id.toLowerCase(Locale.ROOT);
         arena.type = s.getString("type", "no_debuff");
         arena.world = s.getString("world");
-        arena.pos1 = Arena.Point.fromMap(s.get("pos1"));
-        arena.pos2 = Arena.Point.fromMap(s.get("pos2"));
-        arena.spawnRed = Arena.Point.fromMap(s.get("spawn-red"));
-        arena.spawnBlue = Arena.Point.fromMap(s.get("spawn-blue"));
+        arena.pos1 = Arena.Point.fromMap(sectionMap(s, "pos1"), arena.world);
+        arena.pos2 = Arena.Point.fromMap(sectionMap(s, "pos2"), arena.world);
+        arena.spawnRed = Arena.Point.fromMap(sectionMap(s, "spawn-red"), arena.world);
+        arena.spawnBlue = Arena.Point.fromMap(sectionMap(s, "spawn-blue"), arena.world);
+        arena.bedRed = Arena.Point.fromMap(sectionMap(s, "bed-red"), arena.world);
+        arena.bedBlue = Arena.Point.fromMap(sectionMap(s, "bed-blue"), arena.world);
         // 旧版存档里 miny 用 Double.MIN_VALUE 表示「未设置」，这里一并兼容
         if (s.contains("miny")) {
             double y = s.getDouble("miny");
@@ -141,8 +152,14 @@ public class ArenaManager {
         return arena;
     }
 
+    /** ConfigurationSection.get(key) 返回的是 MemorySection 而非 Map，转成纯 Map 供 Point.fromMap 使用。 */
+    private static Map<String, Object> sectionMap(ConfigurationSection s, String key) {
+        ConfigurationSection cs = s == null ? null : s.getConfigurationSection(key);
+        return cs == null ? null : cs.getValues(false);
+    }
+
     private static String firstWorld(Arena arena) {
-        for (Arena.Point p : new Arena.Point[]{arena.pos1, arena.pos2, arena.spawnRed, arena.spawnBlue}) {
+        for (Arena.Point p : new Arena.Point[]{arena.pos1, arena.pos2, arena.spawnRed, arena.spawnBlue, arena.bedRed, arena.bedBlue}) {
             if (p != null && p.isSet()) return p.world;
         }
         return null;
@@ -222,6 +239,43 @@ public class ArenaManager {
         return true;
     }
 
+    /** 设置床点位：找玩家附近最近的床头；没找到或竞技场不存在返回 false。 */
+    public boolean setBedNearPlayer(String id, String color, org.bukkit.entity.Player player) {
+        Arena arena = get(id);
+        if (arena == null || player == null) return false;
+        Location head = findNearestBedHead(player.getLocation(),
+                com.apple9317.accduel.kit.special_kit.BedFight.SEARCH_RADIUS);
+        if (head == null) return false;
+        Arena.Point p = Arena.Point.of(head);
+        if ("red".equalsIgnoreCase(color)) arena.bedRed = p;
+        else if ("blue".equalsIgnoreCase(color)) arena.bedBlue = p;
+        else return false;
+        arena.world = head.getWorld().getName();
+        save();
+        return true;
+    }
+
+    /** 搜索 origin 附近最近的床头方块。 */
+    private static Location findNearestBedHead(Location origin, int radius) {
+        World w = origin.getWorld();
+        Location best = null;
+        double bestD = Double.MAX_VALUE;
+        int bx = origin.getBlockX(), by = origin.getBlockY(), bz = origin.getBlockZ();
+        for (int x = bx - radius; x <= bx + radius; x++) {
+            for (int y = by - radius; y <= by + radius; y++) {
+                for (int z = bz - radius; z <= bz + radius; z++) {
+                    org.bukkit.block.Block b = w.getBlockAt(x, y, z);
+                    if (!(b.getBlockData() instanceof org.bukkit.block.data.type.Bed bed)) continue;
+                    if (bed.getPart() != org.bukkit.block.data.type.Bed.Part.HEAD) continue;
+                    Location l = b.getLocation();
+                    double d = l.distanceSquared(origin);
+                    if (d < bestD) { bestD = d; best = l; }
+                }
+            }
+        }
+        return best;
+    }
+
     /**
      * 找该类型下配置完整且未被占用的竞技场。
      *
@@ -269,6 +323,69 @@ public class ArenaManager {
 
         public boolean found() {
             return arena != null;
+        }
+    }
+
+    /**
+     * 判断位置是否处于任意竞技场的 pos1-pos2 保护区域内。
+     * 用于禁止破坏/放置方块、桶、爆炸等。
+     */
+    public boolean isProtected(Location loc) {
+        if (loc == null) return false;
+        for (Arena arena : arenas.values()) {
+            if (arena.inBounds(loc)) return true;
+        }
+        return false;
+    }
+
+    // ---------------- 方块模板（世界快照） ----------------
+
+    private Path templateDir() {
+        return plugin.getDataFolder().toPath().resolve("data").resolve("templates");
+    }
+
+    private Path templateFile(String id) {
+        return templateDir().resolve(id + ".json");
+    }
+
+    /**
+     * /duel arena set <id> save：抓取区域方块并保存模板。
+     *
+     * @return 保存成功的模板（含方块数）；竞技场不存在 / 点位不足 / 世界未加载 / 写盘失败均返回 null。
+     */
+    public ArenaTemplate saveTemplate(String id) {
+        Arena arena = get(id);
+        if (arena == null) return null;
+        ArenaTemplate template = ArenaTemplate.capture(arena);
+        if (template == null) return null;
+        try {
+            template.save(templateFile(id));
+            return template;
+        } catch (IOException e) {
+            plugin.getLogger().warning("保存竞技场模板失败: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 该竞技场是否已保存过模板。 */
+    public boolean hasTemplate(String id) {
+        return Files.exists(templateFile(id));
+    }
+
+    /**
+     * 比赛结束后用模板复原竞技场区域；无模板或世界未加载则跳过。
+     */
+    public void restoreTemplate(Arena arena) {
+        if (arena == null) return;
+        try {
+            ArenaTemplate template = ArenaTemplate.load(templateFile(arena.id));
+            if (template == null) return;
+            int changed = template.restore(plugin);
+            if (changed > 0) {
+                plugin.getLogger().info("竞技场 " + arena.id + " 已复原 " + changed + " 个方块");
+            }
+        } catch (IOException e) {
+            plugin.getLogger().warning("复原竞技场模板失败: " + e.getMessage());
         }
     }
 }

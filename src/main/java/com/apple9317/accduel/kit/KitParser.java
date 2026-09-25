@@ -139,6 +139,10 @@ public final class KitParser {
             }
         }
 
+        String basePotion = str(m, "base-potion", null);
+        if (basePotion == null) basePotion = str(m, "potion-type", null);
+        item.basePotion = basePotion;
+
         if (item.slot < 0 || item.slot > 40) {
             plugin.getLogger().warning("装备方案物品槽位无效（0-40）: " + item.slot + "，已跳过");
             return null;

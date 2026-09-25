@@ -4,10 +4,14 @@ import com.apple9317.accduel.ACCDuelPlugin;
 import com.apple9317.accduel.arena.Arena;
 import com.apple9317.accduel.arena.ArenaManager;
 import com.apple9317.accduel.config.ConfigManager;
+import com.apple9317.accduel.dialog.DialogManager;
 import com.apple9317.accduel.geyser.GeyserManager;
+import com.apple9317.accduel.version.ViaManager;
 import com.apple9317.accduel.gui.GuiManager;
 import com.apple9317.accduel.kit.Kit;
 import com.apple9317.accduel.kit.KitManager;
+import com.apple9317.accduel.setting.PlayerSettings;
+import com.apple9317.accduel.setting.SettingsManager;
 import com.apple9317.accduel.stats.StatsManager;
 import com.apple9317.accduel.util.Txt;
 import net.kyori.adventure.text.Component;
@@ -44,8 +48,12 @@ public class DuelManager {
     private final ArenaManager arenas;
     private final KitManager kits;
     private final StatsManager stats;
+    private final SettingsManager settings;
     private final GeyserManager geyser;
     private final GuiManager gui;
+    private final DialogManager dialogs;
+    /** 服务端是否安装 ViaVersion（用于判断客户端真实版本）。 */
+    private final boolean viaPresent;
 
     /** 目标玩家 -> (发起者 -> 请求)。同一目标可同时收到多人的邀请，不再互相覆盖。 */
     private final Map<UUID, Map<UUID, DuelRequest>> requests = new LinkedHashMap<>();
@@ -70,8 +78,11 @@ public class DuelManager {
         this.arenas = plugin.getArenaManager();
         this.kits = plugin.getKitManager();
         this.stats = plugin.getStatsManager();
+        this.settings = plugin.getSettingsManager();
         this.geyser = plugin.getGeyserManager();
         this.gui = plugin.getGuiManager();
+        this.dialogs = plugin.getDialogManager();
+        this.viaPresent = Bukkit.getPluginManager().getPlugin("ViaVersion") != null;
     }
 
     public void start() {
@@ -177,6 +188,12 @@ public class DuelManager {
         return out;
     }
 
+    /** 该玩家客户端是否支持 Dialog：无 ViaVersion 时客户端版本等同服务端（已支持）；有则按真实版本判断。 */
+    private boolean clientSupportsDialog(Player player) {
+        if (!viaPresent) return true;
+        return ViaManager.clientAtLeast1216(player);
+    }
+
     /**
      * 类型选择界面：Java 版打开箱子界面；基岩版优先发送原生表单（失败自动回退箱子界面，
      * Geyser 会把箱子界面翻译成基岩 UI）。
@@ -192,6 +209,22 @@ public class DuelManager {
             for (Kit kit : types) ids.add(kit.id);
             // 表单回调可能延迟到玩家已切换状态之后，需重新校验
             if (geyser.sendTypeForm(player, titleRaw, ids, picked -> {
+                Player current = Bukkit.getPlayer(player.getUniqueId());
+                if (current != null) onPick.accept(picked);
+            })) {
+                return;
+            }
+        }
+        // Java 玩家：服务端支持 Dialog 且客户端为 1.21.6+ 时，用原生屏幕对话框
+        if (!geyser.isBedrock(player) && dialogs.isSupported() && clientSupportsDialog(player)
+                && settings.get(player).modernUi) {
+            List<Component> labels = new ArrayList<>();
+            List<String> ids = new ArrayList<>();
+            for (Kit kit : types) {
+                labels.add(Txt.mm(kit.displayNameRaw()));
+                ids.add(kit.id);
+            }
+            if (dialogs.showButtonMenu(player, Txt.mm(titleRaw), labels, ids, picked -> {
                 Player current = Bukkit.getPlayer(player.getUniqueId());
                 if (current != null) onPick.accept(picked);
             })) {
@@ -275,6 +308,10 @@ public class DuelManager {
             config.send(requester, "target-in-match", Map.of("player", target.getName()));
             return false;
         }
+        if (!settings.acceptsRequests(target.getUniqueId())) {
+            config.send(requester, "target-requests-off", Map.of("player", target.getName()));
+            return false;
+        }
         if (onCooldown(requester)) {
             config.send(requester, "duel-cooldown", Map.of("time", String.valueOf(cooldownRemaining(requester))));
             return false;
@@ -287,7 +324,8 @@ public class DuelManager {
         String typeName = typeName(kit.id);
         config.send(requester, "request-sent", Map.of("player", target.getName(), "type", typeName));
         config.send(target, "request-received", Map.of("player", requester.getName(), "type", typeName));
-        openRequestGui(target, requester, kit);
+        // Java：request-received 消息自带可点击 [接受]/[拒绝]，不再弹箱子；基岩：发原生请求表单
+        sendBedrockRequestForm(target, requester, typeName);
         return true;
     }
 
@@ -296,6 +334,16 @@ public class DuelManager {
         if (p == null || !p.isOnline()) return false;
         UUID uuid = p.getUniqueId();
         return matchOf(uuid) == null && !involves(uuid) && !queue.containsKey(uuid);
+    }
+
+    /**
+     * 玩家是否可被撮合进比赛：在线、没在比赛、没被请求纠缠。
+     * 不检查队列（排队玩家本身就在队列中），供 matchOne 使用。
+     */
+    private boolean available(Player p) {
+        if (p == null || !p.isOnline()) return false;
+        UUID uuid = p.getUniqueId();
+        return matchOf(uuid) == null && !involves(uuid);
     }
 
     /** 取出并移除指定请求。 */
@@ -484,7 +532,8 @@ public class DuelManager {
                     if (pb == null) queue.remove(b.uuid);
                     continue;
                 }
-                if (!isFree(pa) || !isFree(pb)) {
+                // 撮合用 available（不检查队列，两人本就排队中）；isFree 含队列判断会误踢
+                if (!available(pa) || !available(pb)) {
                     queue.remove(a.uuid);
                     queue.remove(b.uuid);
                     continue;
@@ -754,7 +803,7 @@ public class DuelManager {
             } catch (IllegalArgumentException e) {
                 continue;
             }
-            MatchSnapshot snapshot = MatchSnapshot.fromMap(section.getConfigurationSection(key));
+            MatchSnapshot snapshot = MatchSnapshot.fromMap(section.getConfigurationSection(key).getValues(false));
             if (snapshot == null) continue;
             snapshot.pendingRestore = true;
             pendingRestores.put(uuid, snapshot);
@@ -819,6 +868,23 @@ public class DuelManager {
     }
 
     // ---------------- 请求界面 ----------------
+
+    /** 基岩版玩家：发送原生决斗请求表单（接受/拒绝）；Java 玩家不做（聊天消息按钮即可）。 */
+    private void sendBedrockRequestForm(Player target, Player requester, String typeName) {
+        if (!geyser.isBedrock(target)) return;
+        Player to = target;
+        Player from = requester;
+        String plainType = Txt.plain(Txt.parse(typeName));
+        boolean sent = geyser.sendRequestForm(to, "决斗请求",
+                from.getName() + " 邀请你决斗（类型：" + plainType + "）",
+                "接受", "拒绝", accepted -> Bukkit.getScheduler().runTask(plugin, () -> {
+                    if (accepted) acceptRequest(to, from);
+                    else denyRequest(to, from);
+                }));
+        if (!sent) {
+            gui.closeAll(to);
+        }
+    }
 
     /** 打开请求界面（目标玩家视角）。 */
     private void openRequestGui(Player target, Player requester, Kit kit) {

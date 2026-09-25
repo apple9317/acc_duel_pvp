@@ -2,12 +2,15 @@ package com.apple9317.accduel;
 
 import com.apple9317.accduel.arena.ArenaManager;
 import com.apple9317.accduel.command.DuelCommand;
+import com.apple9317.accduel.command.SettingCommand;
 import com.apple9317.accduel.config.ConfigManager;
+import com.apple9317.accduel.dialog.DialogManager;
 import com.apple9317.accduel.duel.DuelManager;
 import com.apple9317.accduel.geyser.GeyserManager;
 import com.apple9317.accduel.gui.GuiManager;
 import com.apple9317.accduel.kit.KitManager;
 import com.apple9317.accduel.listener.Listeners;
+import com.apple9317.accduel.setting.SettingsManager;
 import com.apple9317.accduel.stats.StatsManager;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -22,7 +25,9 @@ public final class ACCDuelPlugin extends JavaPlugin {
     private ArenaManager arenaManager;
     private KitManager kitManager;
     private StatsManager statsManager;
+    private SettingsManager settingsManager;
     private GeyserManager geyserManager;
+    private DialogManager dialogManager;
     private GuiManager guiManager;
     private DuelManager duelManager;
 
@@ -50,8 +55,17 @@ public final class ACCDuelPlugin extends JavaPlugin {
             getLogger().severe("加载统计数据失败: " + e.getMessage());
         }
 
+        settingsManager = new SettingsManager(this);
+        try {
+            settingsManager.load();
+        } catch (Exception e) {
+            getLogger().severe("加载个人设置失败: " + e.getMessage());
+        }
+
         geyserManager = new GeyserManager(this);
         geyserManager.detect();
+
+        dialogManager = new DialogManager(this);
 
         guiManager = new GuiManager();
 
@@ -63,6 +77,13 @@ public final class ACCDuelPlugin extends JavaPlugin {
         if (cmd != null) {
             cmd.setExecutor(command);
             cmd.setTabCompleter(command);
+        }
+
+        SettingCommand settingCommand = new SettingCommand(this);
+        org.bukkit.command.PluginCommand settingCmd = getCommand("duelsetting");
+        if (settingCmd != null) {
+            settingCmd.setExecutor(settingCommand);
+            settingCmd.setTabCompleter(settingCommand);
         }
 
         getServer().getPluginManager().registerEvents(new Listeners(this), this);
@@ -82,6 +103,9 @@ public final class ACCDuelPlugin extends JavaPlugin {
         if (statsManager != null) {
             statsManager.save();
         }
+        if (settingsManager != null) {
+            settingsManager.save();
+        }
         getLogger().info("ACCDuel 竞技决斗场 已禁用，数据已保存");
     }
 
@@ -90,6 +114,10 @@ public final class ACCDuelPlugin extends JavaPlugin {
         configManager.reload();
         arenaManager.reload();
         kitManager.reload();
+        try {
+            settingsManager.load();
+        } catch (Exception ignored) {
+        }
     }
 
     public ConfigManager getConfigManager() {
@@ -108,8 +136,16 @@ public final class ACCDuelPlugin extends JavaPlugin {
         return statsManager;
     }
 
+    public SettingsManager getSettingsManager() {
+        return settingsManager;
+    }
+
     public GeyserManager getGeyserManager() {
         return geyserManager;
+    }
+
+    public DialogManager getDialogManager() {
+        return dialogManager;
     }
 
     public GuiManager getGuiManager() {

@@ -168,7 +168,7 @@ public class GeyserManager {
             builder = dropdownBuilder;
 
             // build：优先 build(Consumer)（现代 cumulus），否则 build() 后 setResponseHandler
-            Object form = buildForm(builder, onPick);
+            Object form = buildForm(builder, new FormHandler(onPick));
             if (form == null) return false;
 
             // 发送：Connection#sendForm(Form)（新 API）
@@ -216,13 +216,12 @@ public class GeyserManager {
     }
 
     /** 构建表单：优先 build(Consumer)，否则 build() 后 setResponseHandler(Consumer)。 */
-    private static Object buildForm(Object builder, Consumer<String> onPick) {
-        FormHandler handler = new FormHandler(onPick);
+    private static Object buildForm(Object builder, Consumer<Object> rawHandler) {
         try {
             for (Method m : builder.getClass().getMethods()) {
                 if (m.getName().equals("build") && m.getParameterCount() == 1
                         && Consumer.class.isAssignableFrom(m.getParameterTypes()[0])) {
-                    return m.invoke(builder, handler);
+                    return m.invoke(builder, rawHandler);
                 }
             }
         } catch (Throwable ignored) {
@@ -233,7 +232,7 @@ public class GeyserManager {
             Object form = build.invoke(builder);
             Method setHandler = findMethod(form.getClass(), "setResponseHandler", 1);
             if (setHandler == null) return null;
-            return setHandler.invoke(form, handler);
+            return setHandler.invoke(form, rawHandler);
         } catch (Throwable t) {
             return null;
         }
@@ -278,5 +277,195 @@ public class GeyserManager {
             if (m.getName().equals(name) && m.getParameterCount() == paramCount) return m;
         }
         return null;
+    }
+
+    // ---------------- 决斗请求表单（SimpleForm 两按钮） ----------------
+
+    /**
+     * 向基岩版玩家发送决斗请求表单（接受/拒绝两个按钮）。
+     *
+     * @param onChoice true = 接受，false = 拒绝/关闭
+     */
+    public boolean sendRequestForm(Player target, String title, String content,
+                                   String acceptLabel, String denyLabel,
+                                   Consumer<Boolean> onChoice) {
+        if (!geyserPresent) return false;
+        try {
+            Object api = Class.forName("org.geysermc.geyser.api.GeyserApi").getMethod("api").invoke(null);
+            Object conn = api.getClass().getMethod("connectionByUuid", UUID.class).invoke(api, target.getUniqueId());
+            if (conn == null) return false;
+
+            Class<?> simpleFormClass = Class.forName("org.geysermc.cumulus.form.SimpleForm");
+            Object builder = simpleFormClass.getMethod("builder").invoke(null);
+            builder = invoke1(builder, "title", title);
+            builder = invoke1(builder, "content", content);
+            if (builder == null) return false;
+            Method button = findMethod(builder.getClass(), "button", 1);
+            if (button == null) return false;
+            button.invoke(builder, acceptLabel);
+            button.invoke(builder, denyLabel);
+
+            Consumer<Object> rawHandler = resp -> {
+                try {
+                    Method closed = findMethod(resp.getClass(), "isClosed", 0);
+                    if (closed != null && Boolean.TRUE.equals(closed.invoke(resp))) {
+                        onChoice.accept(false);
+                        return;
+                    }
+                    Method getId = findMethod(resp.getClass(), "getClickedButtonId", 0);
+                    if (getId != null) {
+                        int bid = (Integer) getId.invoke(resp);
+                        onChoice.accept(bid == 0);
+                    } else {
+                        onChoice.accept(false);
+                    }
+                } catch (Throwable ignored) {
+                }
+            };
+            Object form = buildForm(builder, rawHandler);
+            if (form == null) return false;
+            Method send = findMethod(conn.getClass(), "sendForm", 1);
+            if (send == null) return false;
+            send.invoke(conn, form);
+            return true;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("基岩决斗请求表单发送失败: " + t);
+            return false;
+        }
+    }
+
+    // ---------------- 个人设置表单（CustomForm：开关 + 下拉） ----------------
+
+    /**
+     * 向基岩版玩家发送个人设置表单。
+     *
+     * @param effectOptions 击杀特效选项列表
+     * @param selectedIndex 当前选中的特效下标
+     * @param onResult      (接受申请开关, 选中的特效字符串)
+     */
+    /** 个人设置表单结果：接受申请、新版本UI（null 表示未改动）、击杀特效标签。 */
+    public interface SettingsCallback {
+        void accept(Boolean acceptRequests, Boolean modernUi, String effect);
+    }
+
+    public boolean sendSettingsForm(Player player, String title, boolean acceptRequests,
+                                    boolean modernUi,
+                                    List<String> effectOptions, int selectedIndex,
+                                    SettingsCallback onResult) {
+        if (!geyserPresent) return false;
+        try {
+            Object api = Class.forName("org.geysermc.geyser.api.GeyserApi").getMethod("api").invoke(null);
+            Object conn = api.getClass().getMethod("connectionByUuid", UUID.class).invoke(api, player.getUniqueId());
+            if (conn == null) return false;
+
+            Class<?> customFormClass = Class.forName("org.geysermc.cumulus.form.CustomForm");
+            Object builder = customFormClass.getMethod("builder").invoke(null);
+            builder = invoke1(builder, "title", title);
+            if (builder == null) return false;
+
+            // toggle 0：接受决斗申请
+            Object toggled = null;
+            for (String mn : new String[]{"addToggle", "toggle"}) {
+                toggled = tryInvoke(builder, mn, String.class, boolean.class, "接受决斗申请", acceptRequests);
+                if (toggled != null) break;
+            }
+            if (toggled == null) return false;
+            builder = toggled;
+
+            // toggle 1：新版本屏幕 UI
+            Object toggled2 = null;
+            for (String mn : new String[]{"addToggle", "toggle"}) {
+                toggled2 = tryInvoke(builder, mn, String.class, boolean.class, "新版本UI（1.21.6+）", modernUi);
+                if (toggled2 != null) break;
+            }
+            if (toggled2 == null) return false;
+            builder = toggled2;
+
+            // dropdown 2：击杀特效
+            Object dropped = null;
+            for (String mn : new String[]{"addDropdown", "dropdown"}) {
+                dropped = tryInvoke(builder, mn, String.class, List.class, int.class,
+                        "击杀特效", effectOptions, selectedIndex);
+                if (dropped == null) {
+                    dropped = tryInvoke(builder, mn, String.class, String[].class, int.class,
+                            "击杀特效", effectOptions.toArray(new String[0]), selectedIndex);
+                }
+                if (dropped != null) break;
+            }
+            if (dropped == null) return false;
+            builder = dropped;
+
+            Consumer<Object> rawHandler = resp -> {
+                try {
+                    Method closed = findMethod(resp.getClass(), "isClosed", 0);
+                    if (closed != null && Boolean.TRUE.equals(closed.invoke(resp))) return;
+                    Method getToggle = findMethod(resp.getClass(), "getToggle", 1);
+                    Boolean accept = null;
+                    Boolean modern = null;
+                    if (getToggle != null) {
+                        accept = (Boolean) getToggle.invoke(resp, 0);
+                        modern = (Boolean) getToggle.invoke(resp, 1);
+                    }
+                    String effect = null;
+                    Method getDropdown = findMethod(resp.getClass(), "getDropdownOption", 1);
+                    if (getDropdown != null) {
+                        Object v = getDropdown.invoke(resp, 2);
+                        if (v != null) effect = String.valueOf(v);
+                    }
+                    onResult.accept(accept, modern, effect);
+                } catch (Throwable ignored) {
+                }
+            };
+            Object form = buildForm(builder, rawHandler);
+            if (form == null) return false;
+            Method send = findMethod(conn.getClass(), "sendForm", 1);
+            if (send == null) return false;
+            send.invoke(conn, form);
+            return true;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("基岩个人设置表单发送失败: " + t);
+            return false;
+        }
+    }
+    /** 反射按指定参数类型调用（自动装箱基本类型）。 */
+    private static Object tryInvoke(Object target, String name, Class<?> p1, Class<?> p2,
+                                    Object a1, Object a2) {
+        try {
+            for (Method m : target.getClass().getMethods()) {
+                if (!m.getName().equals(name) || m.getParameterCount() != 2) continue;
+                Class<?>[] params = m.getParameterTypes();
+                if (params[0].isAssignableFrom(p1) && boxed(params[1]).isAssignableFrom(boxed(p2))) {
+                    return m.invoke(target, a1, a2);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static Object tryInvoke(Object target, String name, Class<?> p1, Class<?> p2, Class<?> p3,
+                                    Object a1, Object a2, Object a3) {
+        try {
+            for (Method m : target.getClass().getMethods()) {
+                if (!m.getName().equals(name) || m.getParameterCount() != 3) continue;
+                Class<?> params[] = m.getParameterTypes();
+                if (params[0].isAssignableFrom(p1) && boxed(params[1]).isAssignableFrom(boxed(p2))
+                        && boxed(params[2]).isAssignableFrom(boxed(p3))) {
+                    return m.invoke(target, a1, a2, a3);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static Class<?> boxed(Class<?> c) {
+        if (!c.isPrimitive()) return c;
+        if (c == boolean.class) return Boolean.class;
+        if (c == int.class) return Integer.class;
+        if (c == double.class) return Double.class;
+        if (c == float.class) return Float.class;
+        if (c == long.class) return Long.class;
+        return c;
     }
 }

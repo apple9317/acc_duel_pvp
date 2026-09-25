@@ -1,0 +1,231 @@
+# ================================================
+# 竞技类型配置：no_debuff
+# 服务端首次运行时自动生成，可自由编辑，/duel reload 生效
+# 可用字段：display-name / icon / description / permission / enabled
+#          rules / attributes / effects / items
+# ================================================
+display-name: "<aqua>no_debuff</aqua>"
+icon: DIAMOND_SWORD
+description:
+  - "<gray>保护 III 钻石套装</gray>"
+  - "<gray>锋利 I 钻石剑</gray>"
+  - "<gray>满背包瞬间治疗药水</gray>"
+permission: ""
+enabled: true
+rules:
+  health: 20.0
+  food-level: 20
+items:
+  - slot: 0
+    material: DIAMOND_SWORD
+    amount: 1
+    name: "<aqua>决斗之剑</aqua>"
+    enchants:
+      sharpness: 1
+      unbreaking: 3
+    unbreakable: true
+    flags: []
+  - slot: 1
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 2
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 3
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 4
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 5
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 6
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 7
+    material: ENDER_PEARL
+    amount: 16
+    name: "末影珍珠"
+  - slot: 8
+    material: COOKED_BEEF
+    amount: 64
+    name: "牛排"
+  - slot: 9
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 10
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 11
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 12
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 13
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 14
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 15
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 16
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 17
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 18
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 19
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 20
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 21
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 22
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 23
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 24
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 25
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 26
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 27
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 28
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 29
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 30
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 31
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 32
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 33
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 34
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 35
+    material: SPLASH_POTION
+    amount: 1
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 36
+    material: DIAMOND_BOOTS
+    enchants:
+      protection: 3
+      unbreaking: 3
+    unbreakable: true
+    flags: []
+
+  - slot: 37
+    material: DIAMOND_LEGGINGS
+    enchants:
+      protection: 3
+      unbreaking: 3
+    unbreakable: true
+    flags: []
+
+  - slot: 38
+    material: DIAMOND_CHESTPLATE
+    enchants:
+      protection: 3
+      unbreaking: 3
+    unbreakable: true
+    flags: []
+
+  - slot: 39
+    material: DIAMOND_HELMET
+    enchants:
+      protection: 3
+      unbreaking: 3
+    unbreakable: true
+    flags: []

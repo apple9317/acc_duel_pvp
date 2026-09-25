@@ -18,7 +18,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -31,8 +31,8 @@ import java.util.Map;
  * 竞技类型（装备方案）管理。
  *
  * 每个竞技类型对应 plugins/ACCDuel/kits/&lt;类型&gt;.yml 一个配置文件；
- * /duel arena create &lt;名称&gt; &lt;类型&gt; 创建竞技场时，若该类型文件不存在会自动生成
- * no_debuff 默认模板（保护 III 钻套 + 锋利 I 钻剑 + 满背包治疗药水）。
+ * 默认模板 kits/no_debuff.yml 打包在 jar 资源里，服务端首次运行时自动复制生成
+ * （保护 III 钻套 + 锋利 I 钻剑 + 满背包治疗药水），可自由编辑后 /duel reload 生效。
  */
 public class KitManager {
 
@@ -51,6 +51,8 @@ public class KitManager {
     public void load() throws IOException {
         this.kitsFolder = plugin.getDataFolder().toPath().resolve("kits");
         Files.createDirectories(kitsFolder);
+        // 服务端首次运行时默认生成 kits/no_debuff.yml（已存在则不覆盖）
+        ensureTypeFile("no_debuff");
         loadTypes();
     }
 
@@ -104,87 +106,42 @@ public class KitManager {
     }
 
     /**
-     * 确保某类型存在：文件缺失时自动生成 no_debuff 默认模板并加载。
+     * 确保某类型存在：文件缺失时从 jar 资源复制模板生成并加载。
+     * 资源里有 kits/&lt;id&gt;.yml 则用该模板，否则回退到内置的 no_debuff 模板。
      */
     public Kit ensureType(String type) {
         String id = type == null ? "no_debuff" : type.toLowerCase(Locale.ROOT);
-        if (!hasTypeFile(id)) {
-            try {
-                Files.createDirectories(kitsFolder);
-                Files.writeString(typeFile(id), defaultTypeTemplate(id), StandardCharsets.UTF_8);
-                plugin.getLogger().info("已自动生成竞技类型配置: kits/" + id + ".yml");
-            } catch (IOException e) {
-                plugin.getLogger().warning("生成竞技类型配置失败: " + e.getMessage());
-            }
-        }
+        ensureTypeFile(id);
         if (getType(id) == null) reload();
         return getType(id);
     }
 
-    // ---------------- 默认模板生成（no_debuff） ----------------
-
-    private String defaultTypeTemplate(String id) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("# ================================================\n");
-        sb.append("# 竞技类型配置：").append(id).append("\n");
-        sb.append("# 由 /duel arena create 自动生成，可自由编辑，/duel reload 生效\n");
-        sb.append("# 可用字段：display-name / icon / description / permission / enabled\n");
-        sb.append("#          rules / attributes / effects / items\n");
-        sb.append("# ================================================\n");
-        sb.append("display-name: \"<aqua>").append(id).append("</aqua>\"\n");
-        sb.append("icon: DIAMOND_SWORD\n");
-        sb.append("description:\n");
-        sb.append("  - \"<gray>保护 III 钻石套装</gray>\"\n");
-        sb.append("  - \"<gray>锋利 I 钻石剑</gray>\"\n");
-        sb.append("  - \"<gray>满背包瞬间治疗药水</gray>\"\n");
-        sb.append("permission: \"\"\n");
-        sb.append("enabled: true\n");
-        sb.append("rules:\n");
-        sb.append("  health: 20.0\n");
-        sb.append("  food-level: 20\n");
-        sb.append("items:\n");
-        // 主手：锋利 I 钻剑
-        sb.append("  - slot: 0\n");
-        sb.append("    material: DIAMOND_SWORD\n");
-        sb.append("    amount: 1\n");
-        sb.append("    name: \"<aqua>决斗之剑</aqua>\"\n");
-        sb.append("    enchants:\n");
-        sb.append("      sharpness: 1\n");
-        sb.append("      unbreaking: 3\n");
-        sb.append("    unbreakable: true\n");
-        sb.append("    flags: [HIDE_ENCHANTS, HIDE_UNBREAKABLE]\n");
-        // 背包（1-35）+ 副手（40）：满背包治疗药水
-        for (int slot = 1; slot <= 35; slot++) {
-            appendPotion(sb, slot);
+    /** 类型文件缺失时从资源复制生成（已存在则不覆盖）。 */
+    private void ensureTypeFile(String id) {
+        try {
+            if (hasTypeFile(id)) return;
+            Files.createDirectories(kitsFolder);
+            if (!extractFromResources(id)) {
+                plugin.getLogger().warning("未找到内置类型模板 " + id + "，请手动创建 kits/" + id + ".yml");
+            }
+        } catch (IOException e) {
+            plugin.getLogger().warning("生成竞技类型配置失败: " + e.getMessage());
         }
-        // 盔甲（36-39）：保护 III 钻套
-        appendArmor(sb, 36, "DIAMOND_HELMET");
-        appendArmor(sb, 37, "DIAMOND_CHESTPLATE");
-        appendArmor(sb, 38, "DIAMOND_LEGGINGS");
-        appendArmor(sb, 39, "DIAMOND_BOOTS");
-        appendPotion(sb, 40);
-        return sb.toString();
     }
 
-    private void appendArmor(StringBuilder sb, int slot, String material) {
-        sb.append("  - slot: ").append(slot).append("\n");
-        sb.append("    material: ").append(material).append("\n");
-        sb.append("    enchants:\n");
-        sb.append("      protection: 3\n");
-        sb.append("      unbreaking: 3\n");
-        sb.append("    unbreakable: true\n");
-        sb.append("    flags: [HIDE_ENCHANTS, HIDE_UNBREAKABLE]\n");
-    }
-
-    private void appendPotion(StringBuilder sb, int slot) {
-        sb.append("  - slot: ").append(slot).append("\n");
-        sb.append("    material: POTION\n");
-        sb.append("    amount: 1\n");
-        sb.append("    name: \"<red>治疗药水</red>\"\n");
-        sb.append("    potion-effects:\n");
-        sb.append("      - type: instant_health\n");
-        sb.append("        duration: 1\n");
-        sb.append("        amplifier: 0\n");
+    /** 从 jar 资源复制类型模板；资源里没有 &lt;id&gt;.yml 时回退到 no_debuff 模板。 */
+    private boolean extractFromResources(String id) throws IOException {
+        String path = "kits/" + id.toLowerCase(Locale.ROOT) + ".yml";
+        InputStream in = plugin.getResource(path);
+        if (in == null) {
+            in = plugin.getResource("kits/no_debuff.yml");
+        }
+        if (in == null) return false;
+        try (InputStream is = in) {
+            Files.copy(is, typeFile(id));
+        }
+        plugin.getLogger().info("已生成竞技类型配置: kits/" + id + ".yml");
+        return true;
     }
 
     // ---------------- 权限 ----------------
@@ -291,8 +248,17 @@ public class KitManager {
             Color color = parseColor(item.leatherColor);
             if (color != null) ((LeatherArmorMeta) meta).setColor(color);
         }
-        if (!item.potionEffects.isEmpty() && meta instanceof PotionMeta) {
+        if (meta instanceof PotionMeta) {
             PotionMeta potionMeta = (PotionMeta) meta;
+            // 基础药水类型：决定药水外观/名称/自带效果（不设置则为普通水瓶外观）
+            if (item.basePotion != null && !item.basePotion.isEmpty()) {
+                org.bukkit.potion.PotionType baseType = matchPotionType(item.basePotion);
+                if (baseType != null) {
+                    potionMeta.setBasePotionType(baseType);
+                } else {
+                    plugin.getLogger().warning("药水基础类型无效: " + item.basePotion);
+                }
+            }
             for (KitItem.EffectData e : item.potionEffects) {
                 PotionEffectType type = Compat.potionType(e.type);
                 if (type == null) continue;
@@ -301,6 +267,23 @@ public class KitManager {
         }
         stack.setItemMeta(meta);
         return stack;
+    }
+
+    /** 解析基础药水类型（支持新版枚举名与旧版/效果 id 别名）。 */
+    private static org.bukkit.potion.PotionType matchPotionType(String raw) {
+        String norm = raw.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
+        try {
+            return org.bukkit.potion.PotionType.valueOf(norm);
+        } catch (IllegalArgumentException e) {
+            return switch (norm) {
+                case "INSTANT_HEALTH", "HEAL" -> org.bukkit.potion.PotionType.HEALING;
+                case "INSTANT_HEALTH_2", "STRONG_HEAL" -> org.bukkit.potion.PotionType.STRONG_HEALING;
+                case "INSTANT_DAMAGE", "HARM" -> org.bukkit.potion.PotionType.HARMING;
+                case "INSTANT_DAMAGE_2", "STRONG_HARM" -> org.bukkit.potion.PotionType.STRONG_HARMING;
+                case "JUMP" -> org.bukkit.potion.PotionType.LEAPING;
+                default -> null;
+            };
+        }
     }
 
     private static Color parseColor(String s) {

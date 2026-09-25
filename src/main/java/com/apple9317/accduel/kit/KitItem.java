@@ -15,7 +15,7 @@ import java.util.Map;
  */
 public class KitItem {
 
-    /** 背包槽位：0-8 快捷栏，9-35 主背包，36-39 盔甲，40 副手。 */
+    /** 背包槽位：0-8 快捷栏，9-35 主背包，36 头盔/37 胸甲/38 护腿/39 靴子，40 副手。 */
     public int slot = -1;
     /** 物品材质名（如 DIAMOND_SWORD），仅在解析失败时为空。 */
     public String materialName;
@@ -32,6 +32,12 @@ public class KitItem {
     public String leatherColor;
     /** 药水效果（仅对药水物品生效）。 */
     public List<EffectData> potionEffects = new ArrayList<>();
+    /**
+     * 基础药水类型（仅对药水物品生效），决定药水外观/名称/自带效果，
+     * 如 healing（治疗药水 I）、strong_healing（治疗药水 II）、swiftness 等；
+     * 不设置则为普通水瓶外观。
+     */
+    public String basePotion;
 
     /** 物品级属性修饰符。 */
     public static class ItemAttribute {

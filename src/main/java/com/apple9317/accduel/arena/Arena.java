@@ -51,13 +51,15 @@ public class Arena {
             return m;
         }
 
-        public static Point fromMap(Object raw) {
+        /** 反序列化；旧版存档的点位 Map 没有 world 键（world 存在竞技场顶层），用 fallbackWorld 兜底。 */
+        public static Point fromMap(Object raw, String fallbackWorld) {
             if (!(raw instanceof Map<?, ?>)) return null;
             Map<?, ?> m = (Map<?, ?>) raw;
             Object worldObj = m.get("world");
-            if (worldObj == null) return null;
+            String world = worldObj != null ? String.valueOf(worldObj) : fallbackWorld;
+            if (world == null || world.isEmpty()) return null;
             Point p = new Point();
-            p.world = String.valueOf(worldObj);
+            p.world = world;
             p.x = num(m.get("x"));
             p.y = num(m.get("y"));
             p.z = num(m.get("z"));
@@ -96,13 +98,19 @@ public class Arena {
     public Point spawnRed;
     /** 蓝方进入地图出生点。 */
     public Point spawnBlue;
+    /** 红方床（bedfight 专用，记录床头位置）。 */
+    public Point bedRed;
+    /** 蓝方床（bedfight 专用）。 */
+    public Point bedBlue;
     /** 低于该 Y 判负；null 表示未设置（使用世界最低高度）。 */
     public Double minY;
     public boolean enabled = true;
 
     public boolean isComplete() {
-        return id != null && enabled
+        boolean base = id != null && enabled
                 && ready(pos1) && ready(pos2) && ready(spawnRed) && ready(spawnBlue);
+        if (!base || !isBedFight()) return base;
+        return ready(bedRed) && ready(bedBlue);
     }
 
     /** 点位已配置且所在世界已加载。 */
@@ -112,17 +120,19 @@ public class Arena {
 
     /** 点位已配置（不要求世界已加载），用于区分「没配」和「世界没加载」。 */
     public boolean isConfigured() {
-        return id != null && enabled
+        boolean base = id != null && enabled
                 && pos1 != null && pos1.isSet() && pos2 != null && pos2.isSet()
                 && spawnRed != null && spawnRed.isSet() && spawnBlue != null && spawnBlue.isSet();
+        if (!base || !isBedFight()) return base;
+        return bedRed != null && bedRed.isSet() && bedBlue != null && bedBlue.isSet();
     }
 
-    /** 战斗出生点（red = 选手 1）。 */
-    public Location fightPos(boolean red) {
-        return red ? (pos1 == null ? null : pos1.resolve()) : (pos2 == null ? null : pos2.resolve());
+    /** 是否为起床战争单挑类型。 */
+    public boolean isBedFight() {
+        return com.apple9317.accduel.kit.special_kit.BedFight.TYPE.equals(type);
     }
 
-    /** 选手进入地图时的出生点（red = 选手 1）。 */
+    /** 选手进入地图 / 每回合开局的出生点（red = 选手 1）。 */
     public Location entryPoint(boolean red) {
         return red ? (spawnRed == null ? null : spawnRed.resolve()) : (spawnBlue == null ? null : spawnBlue.resolve());
     }
@@ -187,6 +197,49 @@ public class Arena {
         radius = radius * 2 + Math.max(16, margin);
         double dist = Math.sqrt(sq(loc.getX() - cx) + sq(loc.getY() - cy) + sq(loc.getZ() - cz));
         return dist <= radius;
+    }
+
+    /**
+     * pos1-pos2 区域的整数包围范围：[minX,minY,minZ,maxX,maxY,maxZ]；点位不足返回 null。
+     * 模板保存、复原、区域保护共用此范围。
+     */
+    public int[] blockBounds() {
+        if (pos1 == null || pos2 == null || !pos1.isSet() || !pos2.isSet()) return null;
+        int minX = (int) Math.floor(Math.min(pos1.x, pos2.x));
+        int maxX = (int) Math.floor(Math.max(pos1.x, pos2.x));
+        int minZ = (int) Math.floor(Math.min(pos1.z, pos2.z));
+        int maxZ = (int) Math.floor(Math.max(pos1.z, pos2.z));
+        int minY = (int) Math.floor(Math.min(pos1.y, pos2.y)) - 1;
+        int maxY = (int) Math.floor(Math.max(pos1.y, pos2.y)) + 6;
+        return new int[]{minX, minY, minZ, maxX, maxY, maxZ};
+    }
+
+    /**
+     * 判断位置是否在 pos1-pos2 围成的轴对齐包围盒内（用于爆炸方块保护）。
+     */
+    public boolean inBounds(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        int[] b = blockBounds();
+        if (b == null || !loc.getWorld().getName().equals(pos1.world)) return false;
+        int x = loc.getBlockX(), y = loc.getBlockY(), z = loc.getBlockZ();
+        return x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5];
+    }
+
+    /** 判断方块是否为指定队伍（red/blue）的床（点床头或床尾都算）。 */
+    public boolean isTeamBed(org.bukkit.block.Block block, boolean red) {
+        Point bed = red ? bedRed : bedBlue;
+        if (bed == null || !bed.isSet()) return false;
+        if (!(block.getBlockData() instanceof org.bukkit.block.data.type.Bed bedData)) return false;
+        Location head;
+        if (bedData.getPart() == org.bukkit.block.data.type.Bed.Part.HEAD) {
+            head = block.getLocation();
+        } else {
+            head = block.getRelative(bedData.getFacing()).getLocation();
+        }
+        return head.getWorld().getName().equals(bed.world)
+                && head.getBlockX() == (int) Math.floor(bed.x)
+                && head.getBlockY() == (int) Math.floor(bed.y)
+                && head.getBlockZ() == (int) Math.floor(bed.z);
     }
 
     private static double sq(double v) {

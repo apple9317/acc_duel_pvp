@@ -4,13 +4,17 @@ main: com.apple9317.accduel.ACCDuelPlugin
 api-version: '1.21'
 authors: [apple9317]
 description: 竞技决斗场插件（类似布吉岛决斗场），支持类型化装备配置、Gson 数据存储、Geyser 自动检测与基岩版原生表单
-softdepend: [Geyser-Spigot, floodgate-bukkit]
+softdepend: [Geyser-Spigot, floodgate-bukkit, ViaVersion]
 
 commands:
   duel:
     description: 竞技决斗场主命令（/duel 打开类型选择界面）
     usage: /duel
     aliases: [jj, pvp, 决斗, duelplayer]
+  duelsetting:
+    description: 个人设置（决斗申请开关、击杀特效）
+    usage: /duelsetting
+    aliases: [duelsettings, 设置]
 
 permissions:
   accduel.use:

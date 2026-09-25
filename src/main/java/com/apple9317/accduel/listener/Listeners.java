@@ -17,9 +17,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityRegainHealthEvent;
 import org.bukkit.event.entity.FoodLevelChangeEvent;
@@ -52,13 +54,17 @@ public class Listeners implements Listener {
     private final ConfigManager config;
     private final DuelManager manager;
     private final GuiManager gui;
+    private final com.apple9317.accduel.arena.ArenaManager arenas;
 
     public Listeners(ACCDuelPlugin plugin) {
         this.plugin = plugin;
         this.config = plugin.getConfigManager();
         this.manager = plugin.getDuelManager();
         this.gui = plugin.getGuiManager();
+        this.arenas = plugin.getArenaManager();
     }
+
+
 
     // ---------------- 加入 / 退出 ----------------
 
@@ -106,6 +112,17 @@ public class Listeners implements Listener {
         event.setKeepInventory(true);
         event.setKeepLevel(true);
         match.handleDeath(p);
+        // 自动重生，不让玩家卡在死亡界面等手动点按钮；
+        // 延迟 1 tick 是因为死亡事件尚未走完，立即 respawn 会被服务端忽略
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (p.isOnline() && p.isDead()) {
+                try {
+                    p.getClass().getMethod("respawn").invoke(p);
+                } catch (Throwable ignored) {
+                    try { p.spigot().respawn(); } catch (Throwable ignored2) {}
+                }
+            }
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -147,6 +164,12 @@ public class Listeners implements Listener {
             if (victimMatch != null) {
                 // 同场对战且处于战斗阶段才允许伤害
                 if (attackerMatch == victimMatch && attackerMatch.state() == Match.State.FIGHTING) {
+                    // 预判致命一击：取消伤害让玩家不真正死亡（避免比赛结束时卡在死亡界面），直接走击杀结算
+                    double finalDamage = event.getFinalDamage();
+                    if (finalDamage >= victim.getHealth()) {
+                        event.setCancelled(true);
+                        attackerMatch.handleSimulatedKill(victim, attacker);
+                    }
                     return;
                 }
                 event.setCancelled(true);
@@ -242,22 +265,41 @@ public class Listeners implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
-        if (manager.inMatch(event.getPlayer())) event.setCancelled(true);
+        Player p = event.getPlayer();
+        Match match = manager.matchOf(p);
+        if (match == null) return;
+        Block block = event.getBlock();
+        // bedfight：允许挖掉对方的床并标记床毁
+        if (match.isOpponentBedBlock(block, p)) {
+            match.notifyBedBroken(block, p);
+            return;
+        }
+        // 其余方块仅允许破坏玩家自己放置的
+        if (!match.isPlayerPlaced(block.getLocation())) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
-        if (manager.inMatch(event.getPlayer())) event.setCancelled(true);
+        Player p = event.getPlayer();
+        Match match = manager.matchOf(p);
+        // 比赛中允许放置方块，但记录位置（仅这些方块可被破坏，赛后随模板统一复原）
+        if (match != null) match.trackPlacedBlock(event.getBlock().getLocation());
     }
 
+    // 注：水桶/岩浆桶可自由倒、接，不做限制。
+
+    /** 实体爆炸（TNT/末影水晶/苦力怕等）不破坏竞技场区域内的方块。 */
     @EventHandler(ignoreCancelled = true)
-    public void onBucketEmpty(PlayerBucketEmptyEvent event) {
-        if (manager.inMatch(event.getPlayer())) event.setCancelled(true);
+    public void onEntityExplode(EntityExplodeEvent event) {
+        event.blockList().removeIf(b -> arenas.isProtected(b.getLocation()));
     }
 
+    /** 方块爆炸（床/重生锚）不破坏竞技场区域内的方块。 */
     @EventHandler(ignoreCancelled = true)
-    public void onBucketFill(PlayerBucketFillEvent event) {
-        if (manager.inMatch(event.getPlayer())) event.setCancelled(true);
+    public void onBlockExplode(BlockExplodeEvent event) {
+        event.blockList().removeIf(b -> arenas.isProtected(b.getLocation()));
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -318,9 +360,10 @@ public class Listeners implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onTeleport(PlayerTeleportEvent event) {
         PlayerTeleportEvent.TeleportCause cause = event.getCause();
+        // RESPAWN 枚举是较新版本才加入的，这里用名称比较以兼容 1.21.1 与 26.2
         if (cause == PlayerTeleportEvent.TeleportCause.PLUGIN
                 || cause == PlayerTeleportEvent.TeleportCause.UNKNOWN
-                || cause == PlayerTeleportEvent.TeleportCause.RESPAWN) {
+                || "RESPAWN".equals(cause.name())) {
             return;
         }
         Player p = event.getPlayer();

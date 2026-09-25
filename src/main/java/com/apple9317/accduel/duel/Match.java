@@ -3,6 +3,7 @@ package com.apple9317.accduel.duel;
 import com.apple9317.accduel.ACCDuelPlugin;
 import com.apple9317.accduel.arena.Arena;
 import com.apple9317.accduel.config.ConfigManager;
+import com.apple9317.accduel.killeffect.KillEffect;
 import com.apple9317.accduel.kit.Kit;
 import com.apple9317.accduel.kit.KitManager;
 import com.apple9317.accduel.util.Compat;
@@ -69,6 +70,11 @@ public class Match {
     private final Set<UUID> spectators = new HashSet<>();
     /** 本回合已阵亡、正在等待下一回合或最终结果的选手。 */
     private final Set<UUID> eliminated = new HashSet<>();
+    /** 本场比赛中玩家放置的方块坐标 key（这些方块允许被破坏）。 */
+    private final Set<String> placedBlocks = new HashSet<>();
+    // bedfight：双方床是否还在
+    private boolean bedAlive1 = true;
+    private boolean bedAlive2 = true;
 
     private BukkitTask countdownTask;
     private BukkitTask roundTask;
@@ -253,8 +259,9 @@ public class Match {
             return;
         }
         eliminated.clear();
-        Location pos1 = arena.fightPos(true);
-        Location pos2 = arena.fightPos(false);
+        // 每回合开局站在 spawn red/blue（玩家设定的出生点）；pos1/pos2 仅用于划定区域
+        Location pos1 = arena.entryPoint(true);
+        Location pos2 = arena.entryPoint(false);
         if (pos1 == null || pos2 == null) {
             abort("match-aborted-arena");
             return;
@@ -413,12 +420,114 @@ public class Match {
         if (dead == null || state != State.FIGHTING) return;
         UUID deadU = dead.getUniqueId();
         if (!isFighter(deadU)) return;
+        if (isBedFight()) {
+            bedFightResolve(dead, dead.getKiller());
+            return;
+        }
         UUID winnerU = deadU.equals(u1) ? u2 : u1;
         Player killer = dead.getKiller();
         if (killer != null && killer.getUniqueId().equals(winnerU)) {
             matchKills.put(winnerU, matchKills.getOrDefault(winnerU, 0) + 1);
         }
         scoreRound(winnerU);
+    }
+
+    /**
+     * 预判到致命一击时由监听器调用：伤害已被取消，玩家没有真正死亡（不进死亡界面）。
+     * 双方先切到旁观模式定格击杀瞬间，播放击杀特效，再按「victim 被 killer 击杀」结算本回合。
+     */
+    public void handleSimulatedKill(Player victim, Player killer) {
+        if (victim == null || state != State.FIGHTING) return;
+        UUID deadU = victim.getUniqueId();
+        if (!isFighter(deadU)) return;
+        if (isBedFight()) {
+            toSpectator(victim);   // 定格死者，杀手保持活动
+            bedFightResolve(victim, killer);
+            return;
+        }
+        UUID winnerU = deadU.equals(u1) ? u2 : u1;
+        if (killer != null && killer.getUniqueId().equals(winnerU)) {
+            matchKills.put(winnerU, matchKills.getOrDefault(winnerU, 0) + 1);
+        }
+        // 双方切旁观（下一回合 prepareFighter / 结算 restoreFighter 会恢复）
+        toSpectator(victim);
+        if (killer != null && isFighter(killer.getUniqueId())) toSpectator(killer);
+        playKillEffect(killer, victim);
+        scoreRound(winnerU);
+    }
+
+    /** 切旁观模式（不加入 spectators/eliminated 集合，仅改游戏模式）。 */
+    private void toSpectator(Player p) {
+        if (p == null) return;
+        p.setGameMode(GameMode.SPECTATOR);
+    }
+
+    /** 是否为起床战争单挑。 */
+    public boolean isBedFight() {
+        return kit != null && com.apple9317.accduel.kit.special_kit.BedFight.TYPE.equals(kit.id);
+    }
+
+    /** bedfight 一次死亡结算：床在则重生，床没则对方获胜。 */
+    private void bedFightResolve(Player victim, Player killer) {
+        UUID vu = victim.getUniqueId();
+        UUID winnerU = vu.equals(u1) ? u2 : u1;
+        if (killer != null && killer.getUniqueId().equals(winnerU)) {
+            matchKills.merge(winnerU, 1, Integer::sum);
+        }
+        playKillEffect(killer, victim);
+        if (bedAlive(vu)) {
+            scheduleBedRespawn(vu);
+        } else {
+            finish(winnerU, false);
+        }
+    }
+
+    private boolean bedAlive(UUID u) {
+        return u.equals(u1) ? bedAlive1 : bedAlive2;
+    }
+
+    /** 床还在：提示，3 秒后把玩家重置到出生点并复原装备。 */
+    private void scheduleBedRespawn(UUID vu) {
+        Player victim = player(vu);
+        if (victim != null) config.send(victim, "bed-respawn");
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (state == State.ENDED) return;
+            Player p = player(vu);
+            if (p == null) return;
+            prepareFighter(p, arena.entryPoint(vu.equals(u1)));
+            eliminated.remove(vu);
+        }, com.apple9317.accduel.kit.special_kit.BedFight.RESPAWN_DELAY);
+    }
+
+    /** 按击杀者个人设置播放击杀特效。 */
+    private void playKillEffect(Player killer, Player victim) {
+        String effectId = KillEffect.NONE_ID;
+        if (killer != null && isFighter(killer.getUniqueId())) {
+            effectId = plugin.getSettingsManager().get(killer.getUniqueId()).killEffect;
+        }
+        KillEffect.play(KillEffect.Type.fromString(effectId), victim, killer);
+    }
+
+    /** 该方块是否为破坏者对方的床。 */
+    public boolean isOpponentBedBlock(org.bukkit.block.Block block, Player breaker) {
+        if (!isBedFight() || block == null || breaker == null) return false;
+        if (breaker.getUniqueId().equals(u1)) return arena.isTeamBed(block, false);
+        if (breaker.getUniqueId().equals(u2)) return arena.isTeamBed(block, true);
+        return false;
+    }
+
+    /** 床被破坏：标记该队床毁并播报。 */
+    public void notifyBedBroken(org.bukkit.block.Block block, Player breaker) {
+        boolean redBed;
+        if (arena.isTeamBed(block, true)) redBed = true;
+        else if (arena.isTeamBed(block, false)) redBed = false;
+        else return;
+        if (redBed) bedAlive1 = false; else bedAlive2 = false;
+        UUID teamU = redBed ? u1 : u2;
+        config.broadcast("bed-broken", Map.of(
+                "player", nameOf(breaker.getUniqueId()),
+                "team", redBed ? "红队" : "蓝队",
+                "victim", nameOf(teamU)));
     }
 
     /** 弃权（退出/命令），直接结束比赛。 */
@@ -506,6 +615,9 @@ public class Match {
             if (!forfeit && config.getBoolean("match.broadcast-result", true)) {
                 config.broadcast("match-end-broadcast", Map.of(
                         "winner", winnerName, "loser", loserName, "score", score));
+                net.kyori.adventure.text.Component taunt =
+                        config.randomTaunt(winnerName, loserName);
+                if (taunt != null) plugin.getServer().broadcast(taunt);
             }
         } finally {
             // 结算过程中任何异常都不能让比赛对象滞留在活动列表里
@@ -539,6 +651,9 @@ public class Match {
     /** 统一收尾：恢复所有人、注销比赛。放在 finally 中确保不会泄漏比赛对象。 */
     private void cleanup() {
         try {
+            // 先复原竞技场地形（清除玩家放置的方块、恢复被破坏的方块）
+            plugin.getArenaManager().restoreTemplate(arena);
+            placedBlocks.clear();
             restoreFighter(u1);
             restoreFighter(u2);
             for (UUID su : new HashSet<>(spectators)) {
@@ -583,8 +698,13 @@ public class Match {
         s.restore(p);
     }
 
-    /** 重生接口在不同服务端分支上可能不可用，失败时退回等待玩家自行重生。 */
+    /** 重生接口在不同服务端分支上可能不可用：优先反射调 Paper 的 Player.respawn()，失败退回 Spigot 代理。 */
     private static void safeRespawn(Player p) {
+        try {
+            p.getClass().getMethod("respawn").invoke(p);
+            return;
+        } catch (Throwable ignored) {
+        }
         try {
             p.spigot().respawn();
         } catch (Throwable ignored) {
@@ -706,6 +826,20 @@ public class Match {
 
     private static void playSound(Player p, Sound sound, float volume, float pitch) {
         if (p != null) p.playSound(p.getLocation(), sound, volume, pitch);
+    }
+
+    /** 记录玩家放置的方块。 */
+    public void trackPlacedBlock(Location loc) {
+        if (loc != null) placedBlocks.add(blockKey(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()));
+    }
+
+    /** 该位置是否为玩家在本场比赛中放置的方块。 */
+    public boolean isPlayerPlaced(Location loc) {
+        return loc != null && placedBlocks.contains(blockKey(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()));
+    }
+
+    private static String blockKey(int x, int y, int z) {
+        return x + "," + y + "," + z;
     }
 
     /** 倒计时期间是否应冻结该玩家（离开指定点位即视为移动）。 */

@@ -2,6 +2,7 @@ package com.apple9317.accduel.command;
 
 import com.apple9317.accduel.ACCDuelPlugin;
 import com.apple9317.accduel.arena.Arena;
+import com.apple9317.accduel.arena.ArenaTemplate;
 import com.apple9317.accduel.config.ConfigManager;
 import com.apple9317.accduel.duel.DuelManager;
 import com.apple9317.accduel.duel.Match;
@@ -35,7 +36,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
     private final KitManager kits;
     private final StatsManager stats;
 
-    private static final List<String> POS_KEYS = List.of("pos1", "pos2", "miny", "spawn");
+    private static final List<String> POS_KEYS = List.of("pos1", "pos2", "miny", "spawn", "bed", "save");
     private static final List<String> SPAWN_COLORS = List.of("red", "blue");
 
     public DuelCommand(ACCDuelPlugin plugin) {
@@ -387,6 +388,29 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                     config.sendRaw(sender, "arena-not-found", Map.of("id", id));
                 }
             }
+            case "bed" -> {
+                if (extra.length < 1 || !SPAWN_COLORS.contains(extra[0].toLowerCase(Locale.ROOT))) {
+                    config.sendRaw(sender, "arena-set-usage");
+                    return;
+                }
+                String color = extra[0].toLowerCase(Locale.ROOT);
+                if (arenas.setBedNearPlayer(id, color, player)) {
+                    config.sendRaw(sender, "bed-set", Map.of("id", id, "color", color));
+                } else if (arenas.get(id) == null) {
+                    config.sendRaw(sender, "arena-not-found", Map.of("id", id));
+                } else {
+                    config.sendRaw(sender, "bed-not-found");
+                }
+            }
+            case "save" -> {
+                ArenaTemplate template = arenas.saveTemplate(id);
+                if (template != null) {
+                    config.sendRaw(sender, "arena-template-saved", Map.of(
+                            "id", id, "count", String.valueOf(template.blockCount())));
+                } else {
+                    config.sendRaw(sender, "arena-template-failed", Map.of("id", id));
+                }
+            }
             default -> {
                 if (arenas.setPos(id, pos, player.getLocation())) {
                     config.sendRaw(sender, "arena-set", Map.of("id", id, "pos", pos));
@@ -439,63 +463,108 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> out = new ArrayList<>();
         if (args.length == 1) {
-            for (String s : new String[]{"help", "accept", "deny", "queue", "leave", "spectate", "stats", "top", "arena", "list", "reload"}) {
-                if (s.startsWith(args[0].toLowerCase(Locale.ROOT))) out.add(s);
+            if (isInviteAlias(alias)) {
+                // /duelplayer <玩家>：只补在线玩家名（排除自己），不补子命令
+                List<String> names = playerNames();
+                if (sender instanceof Player self) names.remove(self.getName());
+                addPrefix(out, args[0], names);
+                return out;
+            }
+            addPrefix(out, args[0], List.of(
+                    "help", "accept", "deny", "queue", "leave", "spectate",
+                    "stats", "top", "arena", "list", "reload"));
+            // /duel <玩家>：第一个参数位置同时补在线玩家名
+            if (sender instanceof Player self) {
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    if (!p.equals(self)) addPrefix(out, args[0], List.of(p.getName()));
+                }
             }
             return out;
         }
-        switch (args[0].toLowerCase(Locale.ROOT)) {
-            case "accept", "deny", "spectate" -> {
-                for (Player p : Bukkit.getOnlinePlayers()) {
-                    if (p.getName().toLowerCase(Locale.ROOT).startsWith(args[1].toLowerCase(Locale.ROOT))) out.add(p.getName());
-                }
-            }
-            case "queue" -> {
-                for (Kit kit : kits.getTypes()) {
-                    if (kit.id.startsWith(args[1].toLowerCase(Locale.ROOT))) out.add(kit.id);
-                }
-            }
-            case "arena" -> {
-                if (args.length == 2) {
-                    for (String s : new String[]{"help", "create", "set", "remove", "list"}) {
-                        if (s.startsWith(args[1].toLowerCase(Locale.ROOT))) out.add(s);
-                    }
-                } else if (args.length == 3) {
-                    if (args[1].equalsIgnoreCase("set")) {
-                        for (String s : POS_KEYS) {
-                            if (s.startsWith(args[2].toLowerCase(Locale.ROOT))) out.add(s);
-                        }
-                    }
-                    if (args[1].equalsIgnoreCase("set") || args[1].equalsIgnoreCase("remove")) {
-                        for (Arena arena : plugin.getArenaManager().all()) {
-                            if (arena.id.startsWith(args[2].toLowerCase(Locale.ROOT))) out.add(arena.id);
-                        }
-                    } else if (args[1].equalsIgnoreCase("create")) {
-                        for (Kit kit : kits.getTypes()) {
-                            if (kit.id.startsWith(args[2].toLowerCase(Locale.ROOT))) out.add(kit.id);
-                        }
-                        out.add("no_debuff");
-                    }
-                } else if (args.length == 4 && args[1].equalsIgnoreCase("set")) {
-                    for (String s : POS_KEYS) {
-                        if (s.startsWith(args[3].toLowerCase(Locale.ROOT))) out.add(s);
-                    }
-                } else if (args.length == 5 && args[1].equalsIgnoreCase("set") && args[3].equalsIgnoreCase("spawn")) {
-                    for (String s : SPAWN_COLORS) {
-                        if (s.startsWith(args[4].toLowerCase(Locale.ROOT))) out.add(s);
-                    }
-                }
-            }
+        String sub = args[0].toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "accept", "deny", "spectate", "stats" -> addPrefix(out, args[1], playerNames());
+            case "queue" -> addPrefix(out, args[1], kitIds());
+            case "arena" -> tabArena(args, out);
             default -> {
-                if (sender instanceof Player player) {
-                    for (Player p : Bukkit.getOnlinePlayers()) {
-                        if (!p.equals(player) && p.getName().toLowerCase(Locale.ROOT).startsWith(args[0].toLowerCase(Locale.ROOT))) {
-                            out.add(p.getName());
-                        }
-                    }
-                }
+                // /duel <玩家> <类型>：第二个参数补竞技类型
+                addPrefix(out, args[1], kitIds());
             }
         }
         return out;
+    }
+
+    /** /duel arena ... 的分层补全（args[0] 固定为 arena）。 */
+    private void tabArena(String[] args, List<String> out) {
+        if (args.length == 2) {
+            addPrefix(out, args[1], List.of("help", "create", "set", "remove", "list"));
+            return;
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (args.length == 3) {
+            switch (action) {
+                case "set" -> {
+                    addPrefix(out, args[2], POS_KEYS);    // 省略 id 形式：/duel arena set <key>
+                    addPrefix(out, args[2], arenaIds());  // 完整形式：/duel arena set <id> <key>
+                }
+                case "remove" -> addPrefix(out, args[2], arenaIds());
+                // create 的名称自由输入，不补
+            }
+            return;
+        }
+        if (args.length == 4) {
+            if (action.equals("create")) {
+                addPrefix(out, args[3], kitIds());        // /duel arena create <name> <type>
+            } else if (action.equals("set")) {
+                if (POS_KEYS.contains(args[2].toLowerCase(Locale.ROOT))) {
+                    // 省略 id：args[3] 是该 key 的参数
+                    if (args[2].equalsIgnoreCase("spawn") || args[2].equalsIgnoreCase("bed"))
+                        addPrefix(out, args[3], SPAWN_COLORS);
+                } else {
+                    addPrefix(out, args[3], POS_KEYS);    // 完整形式：/duel arena set <id> <key>
+                }
+            }
+            return;
+        }
+        if (args.length == 5 && action.equals("set")
+                && !POS_KEYS.contains(args[2].toLowerCase(Locale.ROOT))
+                && (args[3].equalsIgnoreCase("spawn") || args[3].equalsIgnoreCase("bed"))) {
+            addPrefix(out, args[4], SPAWN_COLORS);        // /duel arena set <id> spawn <red/blue>
+        }
+    }
+
+    private List<String> arenaIds() {
+        List<String> ids = new ArrayList<>();
+        for (Arena a : plugin.getArenaManager().all()) ids.add(a.id);
+        return ids;
+    }
+
+    private List<String> kitIds() {
+        List<String> ids = new ArrayList<>();
+        for (Kit k : kits.getTypes()) ids.add(k.id);
+        return ids;
+    }
+
+    private List<String> playerNames() {
+        List<String> names = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) names.add(p.getName());
+        return names;
+    }
+
+    /** 玩家是否以 duelplayer 别名调用（该别名语义为邀请，第一参数只补玩家名）。 */
+    private static boolean isInviteAlias(String alias) {
+        if (alias == null) return false;
+        String a = alias.toLowerCase(Locale.ROOT);
+        int colon = a.indexOf(':');
+        if (colon >= 0) a = a.substring(colon + 1);
+        return a.equals("duelplayer");
+    }
+
+    /** 把 options 中以 prefix（忽略大小写）开头、且尚未加入的项追加到 out。 */
+    private static void addPrefix(List<String> out, String prefix, List<String> options) {
+        String p = prefix.toLowerCase(Locale.ROOT);
+        for (String s : options) {
+            if (s.toLowerCase(Locale.ROOT).startsWith(p) && !out.contains(s)) out.add(s);
+        }
     }
 }

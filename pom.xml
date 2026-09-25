@@ -29,6 +29,11 @@
             <id>central</id>
             <url>https://repo.maven.apache.org/maven2</url>
         </repository>
+        <!-- ViaVersion：客户端协议版本检测（软依赖，由服务端插件提供） -->
+        <repository>
+            <id>viaversion-repo</id>
+            <url>https://repo.viaversion.com</url>
+        </repository>
     </repositories>
 
     <dependencies>
@@ -51,6 +56,13 @@
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-minimessage</artifactId>
             <version>4.17.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- ViaVersion API：检测玩家客户端版本（软依赖，provided 不打包） -->
+        <dependency>
+            <groupId>com.viaversion</groupId>
+            <artifactId>viaversion-api</artifactId>
+            <version>5.11.0</version>
             <scope>provided</scope>
         </dependency>
     </dependencies>

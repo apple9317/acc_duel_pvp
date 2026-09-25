@@ -5,7 +5,7 @@
 #  床在时死亡，3 秒后回到出生点并复原本套装备。
 # ================================================================ #
 
-display-name: "<red>bedfight</red>"
+display-name: "<red>B edfight (起床决战)</red>"
 icon: RED_BED
 description:
   - "<gray>起床战争单挑</gray>"
@@ -37,37 +37,42 @@ items:
     amount: 64
     name: "<white>羊毛</white>"
   - slot: 3
+    material: SHEARS
+    amount: 1
+    name: "<white>剪刀</white>"
+    enchants:
+      efficiency: 1
+    unbreakable: true
+  - slot: 4
     material: IRON_PICKAXE
     amount: 1
     name: "<gray>铁镐</gray>"
     enchants:
       unbreaking: 3
     unbreakable: true
-  - slot: 4
+  - slot: 5
     material: IRON_AXE
     amount: 1
     name: "<gray>铁斧</gray>"
     enchants:
       unbreaking: 3
     unbreakable: true
-  - slot: 5
-    material: ENDER_PEARL
-    amount: 4
-    name: "末影珍珠"
   - slot: 6
+    material: END_STONE
+    amount: 8
+    name: "末地石"
+  - slot: 7
+    material: OAK_PLANKS
+    amount: 12
+    name: "橡木木板"
+  - slot: 8
     material: COOKED_BEEF
     amount: 32
     name: "牛排"
-  - slot: 7
-    material: SPLASH_POTION
-    amount: 1
-    name: "<red>治疗药水</red>"
-    base-potion: healing
-  - slot: 8
-    material: SPLASH_POTION
-    amount: 1
-    name: "<red>治疗药水</red>"
-    base-potion: healing
+  - slot: 9
+    material: COOKED_BEEF
+    amount: 32
+    name: "牛排"
   - slot: 36
     material: IRON_BOOTS
     enchants:

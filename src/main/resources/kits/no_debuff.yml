@@ -4,12 +4,11 @@
 # 可用字段：display-name / icon / description / permission / enabled
 #          rules / attributes / effects / items
 # ================================================
-display-name: "<aqua>no_debuff</aqua>"
-icon: DIAMOND_SWORD
+display-name: "<green>No_Debuff</green> <gray>(无负面效果)</gray>"
+icon: SPLASH_POTION
+base-potion: healing
 description:
-  - "<gray>保护 III 钻石套装</gray>"
-  - "<gray>锋利 I 钻石剑</gray>"
-  - "<gray>满背包瞬间治疗药水</gray>"
+  - "<gray>又名 Pots,比拼药水的妙用</gray>"
 permission: ""
 enabled: true
 rules:

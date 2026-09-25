@@ -1,0 +1,84 @@
+# ================================================
+# 竞技类型配置：no_debuff
+# 服务端首次运行时自动生成，可自由编辑，/duel reload 生效
+# 可用字段：display-name / icon / description / permission / enabled
+#          rules / attributes / effects / items
+# ================================================
+display-name: "<white>No_Debuff</white> <gray>(蜘蛛网)</gray>"
+icon: COBWEB
+description:
+  - "<gray>黏住对手想做什么都可以</gray>"
+permission: ""
+enabled: true
+rules:
+  health: 20.0
+  food-level: 20
+items:
+  - slot: 0
+    material: DIAMOND_SWORD
+    amount: 1
+    name: "<aqua>钻石剑</aqua>"
+    enchants:
+      sharpness: 3
+    unbreakable: true
+    flags: []
+  - slot: 1
+    material: SHEARS
+    amount: 1
+    name: "剪刀"
+  - slot: 2
+    material: COOKED_BEEF
+    amount: 64
+    name: "牛排"
+  - slot: 3
+    material: GOLDEN_APPLE
+    amount: 6
+    name: "金苹果"
+  - slot: 4
+    material: SPLASH_POTION
+    amount: 3
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 5
+    material: COBWEB
+    amount: 32
+    name: "蜘蛛网"
+  - slot: 6
+    material: COBWEB
+    amount: 32
+    name: "蜘蛛网"
+  - slot: 7
+    material: WATER_BUCKET
+    amount: 1
+    name: "水桶"
+  - slot: 8
+    material: LAVA_BUCKET
+    amount: 1
+    name: "岩浆桶"
+  - slot: 36
+    material: DIAMOND_BOOTS
+    enchants:
+      protection: 2
+    unbreakable: true
+    flags: []
+
+  - slot: 37
+    material: DIAMOND_LEGGINGS
+    enchants:
+      protection: 2
+    unbreakable: true
+    flags: []
+
+  - slot: 38
+    material: DIAMOND_CHESTPLATE
+    enchants:
+      protection: 2
+    unbreakable: true
+    flags: []
+
+  - slot: 39
+    material: DIAMOND_HELMET
+    enchants:
+      protection: 2
+    unbreakable: true
+    flags: []

@@ -1,0 +1,59 @@
+# ================================================
+# 竞技类型配置：no_debuff
+# 服务端首次运行时自动生成，可自由编辑，/duel reload 生效
+# 可用字段：display-name / icon / description / permission / enabled
+#          rules / attributes / effects / items
+# ================================================
+display-name: "<aqua>PureUHC</aqua> <gray>(纯粹极限生存)</gray>"
+icon: DIAMOND_BOOTS
+description:
+  - "<gray>顾名思义,无需技巧,只有鱼竿</gray>"
+permission: ""
+enabled: true
+rules:
+  health: 20.0
+  food-level: 20
+items:
+  - slot: 0
+    material: FISHING_ROD
+    amount: 1
+    name: "钓鱼竿"
+    unbreakable: true
+    flags: []
+  - slot: 1
+    material: DIAMOND_SWORD
+    amount: 1
+    name: "钻石剑"
+  - slot: 2
+    material: SPLASH_POTION
+    amount: 3
+    name: "<red>治疗药水</red>"
+    base-potion: healing
+  - slot: 3
+    material: GOLDEN_APPLE
+    amount: 3
+    name: "金苹果"
+  - slot: 4
+    material: COOKED_BEEF
+    amount: 64
+    name: "牛排"
+
+  - slot: 37
+    material: DIAMOND_BOOTS
+    unbreakable: true
+    flags: []
+
+  - slot: 37
+    material: DIAMOND_LEGGINGS
+    unbreakable: true
+    flags: []
+
+  - slot: 38
+    material: DIAMOND_CHESTPLATE
+    unbreakable: true
+    flags: []
+
+  - slot: 39
+    material: DIAMOND_HELMET
+    unbreakable: true
+    flags: []

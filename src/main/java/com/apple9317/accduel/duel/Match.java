@@ -72,9 +72,14 @@ public class Match {
     private final Set<UUID> eliminated = new HashSet<>();
     /** 本场比赛中玩家放置的方块坐标 key（这些方块允许被破坏）。 */
     private final Set<String> placedBlocks = new HashSet<>();
+    /** 越界开始时间（millis），回到合法区域即移除。 */
+    private final Map<UUID, Long> outsideSince = new HashMap<>();
     // bedfight：双方床是否还在
     private boolean bedAlive1 = true;
     private boolean bedAlive2 = true;
+    // 头顶血量计分板队伍
+    private org.bukkit.scoreboard.Team healthTeam1;
+    private org.bukkit.scoreboard.Team healthTeam2;
 
     private BukkitTask countdownTask;
     private BukkitTask roundTask;
@@ -224,7 +229,8 @@ public class Match {
         p1.teleport(entry1);
         p2.teleport(entry2);
 
-        scheduleVoidCheck();
+        scheduleBoundaryCheck();
+        registerHealthTeams();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (state != State.ENDED) beginRound(1);
         }, 40L);
@@ -259,6 +265,7 @@ public class Match {
             return;
         }
         eliminated.clear();
+        outsideSince.clear();
         // 每回合开局站在 spawn red/blue（玩家设定的出生点）；pos1/pos2 仅用于划定区域
         Location pos1 = arena.entryPoint(true);
         Location pos2 = arena.entryPoint(false);
@@ -299,6 +306,7 @@ public class Match {
         }
         fightPos.put(p.getUniqueId(), pos.clone());
         p.teleport(pos);
+        updateHealthPrefixes();
     }
 
     private void startCountdown(int seconds) {
@@ -359,6 +367,7 @@ public class Match {
 
     private void sendScoreBar() {
         if (state == State.ENDED) return;
+        updateHealthPrefixes();
         String key = limitEnabled() ? "match-actionbar-timed" : "match-actionbar";
         String raw = config.raw(key, Map.of(
                 "score", scoreText(),
@@ -394,23 +403,62 @@ public class Match {
         return max <= 0 ? 0 : p.getHealth() / max;
     }
 
-    /** 虚空检测：仅战斗阶段生效，低于竞技场 min-y 判负。 */
-    private void scheduleVoidCheck() {
+    /** 边界检测：离开区域/超高持续 5 秒判负，低于 miny 立即判负。仅战斗阶段生效。 */
+    private void scheduleBoundaryCheck() {
         cancelTask(voidTask);
         voidTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (state != State.FIGHTING) return;
-            double minY = arena.effectiveMinY();
             for (UUID u : new UUID[]{u1, u2}) {
                 if (eliminated.contains(u)) continue;
                 Player p = player(u);
                 if (p == null || !p.isOnline() || p.isDead()) continue;
                 Location loc = p.getLocation();
-                if (loc.getWorld() == null || loc.getY() >= minY) continue;
-                // 直接把生命归零以触发正常的死亡流程；
-                // 不能用 damage()，那会被「取消非对手伤害」规则拦掉。
-                p.setHealth(0);
+                if (loc.getWorld() == null) continue;
+
+                // 低于 miny：立即惩罚
+                if (loc.getY() < arena.effectiveMinY()) {
+                    outsideSince.remove(u);
+                    applyBoundaryPenalty(u);
+                    continue;
+                }
+                boolean tooHigh = arena.maxY != null && loc.getY() > arena.maxY + 5;
+                boolean outside = !arena.inBounds(loc);
+                if (tooHigh || outside) {
+                    long now = System.currentTimeMillis();
+                    Long since = outsideSince.putIfAbsent(u, now);
+                    long startMs = since == null ? now : since;
+                    long elapsed = now - startMs;
+                    long secondsLeft = Math.max(0, (5000 - elapsed + 999) / 1000);
+                    warnReturn(p, secondsLeft);
+                    if (elapsed >= 5000) {
+                        outsideSince.remove(u);
+                        applyBoundaryPenalty(u);
+                    }
+                } else {
+                    outsideSince.remove(u);
+                }
             }
-        }, 40L, 10L);
+        }, 20L, 10L);
+    }
+
+    /** 越界/超高惩罚：普通模式本回合判负，bedfight 判死亡。 */
+    private void applyBoundaryPenalty(UUID offender) {
+        UUID other = offender.equals(u1) ? u2 : u1;
+        if (isBedFight()) {
+            bedFightResolve(player(offender), null);
+        } else {
+            scoreRound(other);
+        }
+    }
+
+    /** 大红字警告返回，显示剩余秒数。 */
+    private void warnReturn(Player p, long secondsLeft) {
+        Title title = Title.title(
+                Txt.mm("<red><bold>返回战斗区域！</bold></red>"),
+                Txt.mm("<yellow>" + secondsLeft + " 秒后判负</yellow>"),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(700), Duration.ofMillis(100)));
+        p.showTitle(title);
+        p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.6f);
     }
 
     // ---------------- 判胜 ----------------
@@ -565,6 +613,7 @@ public class Match {
                 "round", String.valueOf(round),
                 "player", nameOf(winnerU),
                 "score", scoreText()));
+        restoreArenaBetweenRounds();
         scheduleNextRound();
     }
 
@@ -578,6 +627,7 @@ public class Match {
         }
         state = State.ROUND_OVER;
         cancelTask(roundTimerTask);
+        restoreArenaBetweenRounds();
         scheduleNextRound();
     }
 
@@ -665,8 +715,10 @@ public class Match {
                 restoreSpectator(su);
             }
         } finally {
+            unregisterHealthTeams();
             spectators.clear();
             eliminated.clear();
+        outsideSince.clear();
             manager.onMatchEnd(this);
         }
     }
@@ -793,8 +845,10 @@ public class Match {
                 config.broadcast(messageKey);
             }
         } finally {
+            unregisterHealthTeams();
             spectators.clear();
             eliminated.clear();
+        outsideSince.clear();
             manager.onMatchEnd(this);
         }
     }
@@ -856,5 +910,64 @@ public class Match {
         if (current.getWorld() == null || pos.getWorld() == null) return false;
         if (!current.getWorld().equals(pos.getWorld())) return true;
         return current.distanceSquared(pos) > 0.01;
+    }
+
+    /** 回合间复原地形（玩家放置/破坏的方块还原）。 */
+    private void restoreArenaBetweenRounds() {
+        plugin.getArenaManager().restoreTemplate(arena);
+        placedBlocks.clear();
+    }
+
+    /** 注册计分板队伍，用前缀在玩家头顶显示血量。 */
+    private void registerHealthTeams() {
+        try {
+            org.bukkit.scoreboard.Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
+            healthTeam1 = obtainTeam(sb, "ad" + id + "a");
+            healthTeam2 = obtainTeam(sb, "ad" + id + "b");
+            healthTeam1.addEntry(name1);
+            healthTeam2.addEntry(name2);
+            updateHealthPrefixes();
+        } catch (Throwable t) {
+            plugin.getLogger().warning("注册血量队伍失败: " + t.getMessage());
+        }
+    }
+
+    private static org.bukkit.scoreboard.Team obtainTeam(org.bukkit.scoreboard.Scoreboard sb, String name) {
+        org.bukkit.scoreboard.Team t = sb.getTeam(name);
+        if (t == null) {
+            try { t = sb.registerNewTeam(name); } catch (Throwable ignored) {}
+        }
+        return t;
+    }
+
+    private void updateHealthPrefixes() {
+        setHealthPrefix(healthTeam1, player(u1));
+        setHealthPrefix(healthTeam2, player(u2));
+    }
+
+    private static void setHealthPrefix(org.bukkit.scoreboard.Team team, Player p) {
+        if (team == null) return;
+        double hp = (p == null || p.isDead()) ? 0 : p.getHealth();
+        int hearts = (int) Math.ceil(hp / 2.0);
+        if (hearts < 0) hearts = 0;
+        if (hearts > 10) hearts = 10;
+        try {
+            team.prefix(net.kyori.adventure.text.Component.text(
+                    "❤" + hearts + " ",
+                    net.kyori.adventure.text.format.NamedTextColor.RED));
+        } catch (Throwable ignored) {}
+    }
+
+    private void unregisterHealthTeams() {
+        unregisterTeam(healthTeam1, name1);
+        unregisterTeam(healthTeam2, name2);
+        healthTeam1 = null;
+        healthTeam2 = null;
+    }
+
+    private static void unregisterTeam(org.bukkit.scoreboard.Team team, String entry) {
+        if (team == null) return;
+        try { team.removeEntry(entry); } catch (Throwable ignored) {}
+        try { team.unregister(); } catch (Throwable ignored) {}
     }
 }

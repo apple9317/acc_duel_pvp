@@ -108,6 +108,8 @@ public class ArenaManager {
             config.set(base + ".bed-blue", arena.bedBlue == null ? (raw == null ? null : sectionMap(raw, "bed-blue")) : arena.bedBlue.toMap());
             if (arena.minY != null) config.set(base + ".miny", arena.minY);
             else if (raw != null && raw.contains("miny")) config.set(base + ".miny", raw.get("miny"));
+            if (arena.maxY != null) config.set(base + ".maxy", arena.maxY);
+            else if (raw != null && raw.contains("maxy")) config.set(base + ".maxy", raw.get("maxy"));
             config.set(base + ".enabled", arena.enabled);
         }
         try {
@@ -144,6 +146,10 @@ public class ArenaManager {
         if (s.contains("miny")) {
             double y = s.getDouble("miny");
             arena.minY = y == Double.MIN_VALUE ? null : y;
+        }
+        if (s.contains("maxy")) {
+            double y = s.getDouble("maxy");
+            arena.maxY = y == Double.MIN_VALUE ? null : y;
         }
         arena.enabled = s.getBoolean("enabled", true);
         if (arena.world == null || arena.world.isEmpty()) {
@@ -235,6 +241,15 @@ public class ArenaManager {
         Arena arena = get(id);
         if (arena == null) return false;
         arena.minY = y;
+        save();
+        return true;
+    }
+
+    /** 设置高度上限；传 null 取消限制。 */
+    public boolean setMaxY(String id, Double y) {
+        Arena arena = get(id);
+        if (arena == null) return false;
+        arena.maxY = y;
         save();
         return true;
     }

@@ -7,6 +7,10 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -51,7 +55,32 @@ public class ConfigManager {
             plugin.getLogger().warning("语言文件 " + langName + ".yml 不存在，回退 zh_cn.yml");
             file = new File(dir, "zh_cn.yml");
         }
-        lang = file.exists() ? YamlConfiguration.loadConfiguration(file) : null;
+        lang = file.exists() ? YamlConfiguration.loadConfiguration(file) : new YamlConfiguration();
+        fillMissingLanguageKeys(file, langName);
+    }
+
+    /** 用 jar 内默认语言补全服务器文件缺失的顶级键（保留用户已有修改）。 */
+    private void fillMissingLanguageKeys(File file, String langName) {
+        try (InputStream in = plugin.getResource("Language/" + langName + ".yml")) {
+            if (in == null) return;
+            YamlConfiguration defaults = new YamlConfiguration();
+            try (Reader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                defaults.load(reader);
+            }
+            int added = 0;
+            for (String key : defaults.getKeys(false)) {
+                if (!lang.contains(key)) {
+                    lang.set(key, defaults.get(key));
+                    added++;
+                }
+            }
+            if (added > 0) {
+                lang.save(file);
+                plugin.getLogger().info("语言文件 " + langName + ".yml 已补全 " + added + " 个缺失条目");
+            }
+        } catch (Throwable t) {
+            plugin.getLogger().warning("补全语言条目失败: " + t.getMessage());
+        }
     }
 
     public FileConfiguration getConfig() {

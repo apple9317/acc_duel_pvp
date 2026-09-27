@@ -5,7 +5,7 @@
 #  床在时死亡，3 秒后回到出生点并复原本套装备。
 # ================================================================ #
 
-display-name: "<red>B edfight (起床决战)</red>"
+display-name: "<red>Bedfight</red> <gray>(起床决战)</gray>"
 icon: RED_BED
 description:
   - "<gray>起床战争单挑</gray>"

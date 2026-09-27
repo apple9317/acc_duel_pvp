@@ -4,7 +4,7 @@
 # 可用字段：display-name / icon / description / permission / enabled
 #          rules / attributes / effects / items
 # ================================================
-display-name: "<white>No_Debuff</white> <gray>(蜘蛛网)</gray>"
+display-name: "<white>COBWEB</white> <gray>(蜘蛛网)</gray>"
 icon: COBWEB
 description:
   - "<gray>黏住对手想做什么都可以</gray>"

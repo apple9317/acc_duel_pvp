@@ -104,6 +104,8 @@ public class Arena {
     public Point bedBlue;
     /** 低于该 Y 判负；null 表示未设置（使用世界最低高度）。 */
     public Double minY;
+    /** 高度上限：高于 maxY+5 持续 5 秒判负；null 不限制。 */
+    public Double maxY;
     public boolean enabled = true;
 
     public boolean isComplete() {

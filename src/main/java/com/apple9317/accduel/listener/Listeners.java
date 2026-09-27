@@ -212,6 +212,13 @@ public class Listeners implements Listener {
         if (cause == EntityDamageEvent.DamageCause.FALL && !config.getBoolean("match.fall-damage", false)) {
             event.setCancelled(true);
             return;
+        }        // 水（溺水）与岩浆/火焰在战斗中正常造成伤害
+        if (cause == EntityDamageEvent.DamageCause.DROWNING
+                || cause == EntityDamageEvent.DamageCause.LAVA
+                || cause == EntityDamageEvent.DamageCause.FIRE
+                || cause == EntityDamageEvent.DamageCause.FIRE_TICK
+                || cause == EntityDamageEvent.DamageCause.HOT_FLOOR) {
+            return;
         }
         if (cause == EntityDamageEvent.DamageCause.ENTITY_ATTACK
                 || cause == EntityDamageEvent.DamageCause.ENTITY_SWEEP_ATTACK
@@ -284,8 +291,15 @@ public class Listeners implements Listener {
     public void onBlockPlace(BlockPlaceEvent event) {
         Player p = event.getPlayer();
         Match match = manager.matchOf(p);
-        // 比赛中允许放置方块，但记录位置（仅这些方块可被破坏，赛后随模板统一复原）
-        if (match != null) match.trackPlacedBlock(event.getBlock().getLocation());
+        if (match == null) return;
+        // maxy 以上不能放置方块
+        Double maxY = match.arena().maxY;
+        if (maxY != null && event.getBlock().getY() > maxY) {
+            event.setCancelled(true);
+            return;
+        }
+        // 记录放置位置（仅这些方块可被破坏，赛后随模板统一复原）
+        match.trackPlacedBlock(event.getBlock().getLocation());
     }
 
     // 注：水桶/岩浆桶可自由倒、接，不做限制。
@@ -308,11 +322,6 @@ public class Listeners implements Listener {
         if (manager.inMatch(event.getPlayer())) event.setCancelled(true);
     }
 
-    @EventHandler(ignoreCancelled = true)
-    public void onPickup(EntityPickupItemEvent event) {
-        if (!config.getBoolean("match.no-item-pickup", true)) return;
-        if (event.getEntity() instanceof Player p && manager.inMatch(p)) event.setCancelled(true);
-    }
 
     /**
      * 比赛中禁止与方块交互（开箱、拉杆、工作台等），但<b>必须保留手中物品的使用权</b>。
@@ -351,9 +360,9 @@ public class Listeners implements Listener {
     public void onMove(PlayerMoveEvent event) {
         Player p = event.getPlayer();
         Match match = manager.matchOf(p);
-        if (match != null && match.freezeDuringCountdown(p)) {
-            event.setCancelled(true);
-        }
+        if (match == null) return;
+        // 仅倒计时阶段锁定位置；战斗中越界由 Match 的边界检测软处理
+        if (match.freezeDuringCountdown(p)) event.setCancelled(true);
     }
 
     /** 比赛中禁止选手被传送出场地（末影珍珠、传送门、/spawn 等）；插件自身的传送不受影响。 */

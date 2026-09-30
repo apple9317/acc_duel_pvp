@@ -164,6 +164,13 @@ public class Listeners implements Listener {
             if (victimMatch != null) {
                 // 同场对战且处于战斗阶段才允许伤害
                 if (attackerMatch == victimMatch && attackerMatch.state() == Match.State.FIGHTING) {
+                    // boxing：攻击不掉血，只统计命中
+                    if (attackerMatch.isBoxing()) {
+                        // 攻击动作正常（挥剑、攻击冷却、击退），仅伤害为 0
+                        event.setDamage(0.0);
+                        attackerMatch.handleBoxingHit(victim, attacker);
+                        return;
+                    }
                     // 预判致命一击：取消伤害让玩家不真正死亡（避免比赛结束时卡在死亡界面），直接走击杀结算
                     double finalDamage = event.getFinalDamage();
                     if (finalDamage >= victim.getHealth()) {
@@ -292,9 +299,8 @@ public class Listeners implements Listener {
         Player p = event.getPlayer();
         Match match = manager.matchOf(p);
         if (match == null) return;
-        // maxy 以上不能放置方块
-        Double maxY = match.arena().maxY;
-        if (maxY != null && event.getBlock().getY() > maxY) {
+        // 只能在 pos1/pos2 区域内放置方块
+        if (!match.arena().inBounds(event.getBlock().getLocation())) {
             event.setCancelled(true);
             return;
         }

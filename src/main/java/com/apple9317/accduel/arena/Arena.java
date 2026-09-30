@@ -104,8 +104,6 @@ public class Arena {
     public Point bedBlue;
     /** 低于该 Y 判负；null 表示未设置（使用世界最低高度）。 */
     public Double minY;
-    /** 高度上限：高于 maxY+5 持续 5 秒判负；null 不限制。 */
-    public Double maxY;
     public boolean enabled = true;
 
     public boolean isComplete() {
@@ -151,6 +149,12 @@ public class Arena {
         if (minY != null) return minY;
         World w = primaryWorld();
         return w != null ? w.getMinHeight() : -64;
+    }
+
+    /** 自动高度上限 = pos1/pos2 的最高 Y（替代原 maxy 配置）。 */
+    public Double autoMaxY() {
+        if (pos1 == null || pos2 == null || !pos1.isSet() || !pos2.isSet()) return null;
+        return Math.max(pos1.y, pos2.y);
     }
 
     public World primaryWorld() {

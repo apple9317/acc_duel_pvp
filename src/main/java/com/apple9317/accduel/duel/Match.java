@@ -74,6 +74,8 @@ public class Match {
     private final Set<String> placedBlocks = new HashSet<>();
     /** 越界开始时间（millis），回到合法区域即移除。 */
     private final Map<UUID, Long> outsideSince = new HashMap<>();
+    /** boxing：每个选手的累计命中数。 */
+    private final Map<UUID, Integer> boxingHits = new HashMap<>();
     // bedfight：双方床是否还在
     private boolean bedAlive1 = true;
     private boolean bedAlive2 = true;
@@ -266,6 +268,7 @@ public class Match {
         }
         eliminated.clear();
         outsideSince.clear();
+        boxingHits.clear();
         // 每回合开局站在 spawn red/blue（玩家设定的出生点）；pos1/pos2 仅用于划定区域
         Location pos1 = arena.entryPoint(true);
         Location pos2 = arena.entryPoint(false);
@@ -368,6 +371,10 @@ public class Match {
     private void sendScoreBar() {
         if (state == State.ENDED) return;
         updateHealthPrefixes();
+        if (isBoxing()) {
+            sendBoxingProgress();
+            return;
+        }
         String key = limitEnabled() ? "match-actionbar-timed" : "match-actionbar";
         String raw = config.raw(key, Map.of(
                 "score", scoreText(),
@@ -421,7 +428,8 @@ public class Match {
                     applyBoundaryPenalty(u);
                     continue;
                 }
-                boolean tooHigh = arena.maxY != null && loc.getY() > arena.maxY + 5;
+                Double autoMax = arena.autoMaxY();
+                boolean tooHigh = autoMax != null && loc.getY() > autoMax + 5;
                 boolean outside = !arena.inBounds(loc);
                 if (tooHigh || outside) {
                     long now = System.currentTimeMillis();
@@ -459,6 +467,37 @@ public class Match {
                 Title.Times.times(Duration.ZERO, Duration.ofMillis(700), Duration.ofMillis(100)));
         p.showTitle(title);
         p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1f, 0.6f);
+    }
+
+    /** boxing：一次命中（伤害已取消），先达到次数者胜。 */
+    public void handleBoxingHit(Player victim, Player attacker) {
+        if (attacker == null || state != State.FIGHTING) return;
+        UUID au = attacker.getUniqueId();
+        int hits = boxingHits.getOrDefault(au, 0) + 1;
+        boxingHits.put(au, hits);
+        attacker.playSound(attacker.getLocation(), Sound.ENTITY_PLAYER_ATTACK_WEAK, 1f, 1.4f);
+        if (hits >= com.apple9317.accduel.kit.special_kit.Boxing.HITS_TO_WIN) {
+            toSpectator(victim);
+            playKillEffect(attacker, victim);
+            // 赢下这唯一的一回合（1 回合定胜负，最终比分 1:0）
+            if (au.equals(u1)) score1++;
+            else score2++;
+            finish(au, false);
+            return;
+        }
+        updateHealthPrefixes();
+        sendBoxingProgress();
+    }
+
+    /** boxing 动作栏：双方命中数。 */
+    private void sendBoxingProgress() {
+        int need = com.apple9317.accduel.kit.special_kit.Boxing.HITS_TO_WIN;
+        Component bar = Txt.mm("<gray>命中</gray> <red>" + boxingHits.getOrDefault(u1, 0)
+                + "</red> <dark_gray>:</dark_gray> <blue>" + boxingHits.getOrDefault(u2, 0)
+                + "</blue> <gray>/ " + need + "</gray>");
+        Player p1 = player(u1), p2 = player(u2);
+        if (p1 != null) p1.sendActionBar(bar);
+        if (p2 != null) p2.sendActionBar(bar);
     }
 
     // ---------------- 判胜 ----------------
@@ -513,6 +552,10 @@ public class Match {
     /** 是否为起床战争单挑。 */
     public boolean isBedFight() {
         return kit != null && com.apple9317.accduel.kit.special_kit.BedFight.TYPE.equals(kit.id);
+    }
+
+    public boolean isBoxing() {
+        return kit != null && com.apple9317.accduel.kit.special_kit.Boxing.TYPE.equals(kit.id);
     }
 
     /** bedfight 一次死亡结算：床在则重生，床没则对方获胜。 */
@@ -719,6 +762,7 @@ public class Match {
             spectators.clear();
             eliminated.clear();
         outsideSince.clear();
+        boxingHits.clear();
             manager.onMatchEnd(this);
         }
     }
@@ -849,6 +893,7 @@ public class Match {
             spectators.clear();
             eliminated.clear();
         outsideSince.clear();
+        boxingHits.clear();
             manager.onMatchEnd(this);
         }
     }
@@ -941,19 +986,28 @@ public class Match {
     }
 
     private void updateHealthPrefixes() {
-        setHealthPrefix(healthTeam1, player(u1));
-        setHealthPrefix(healthTeam2, player(u2));
+        if (isBoxing()) {
+            int need = com.apple9317.accduel.kit.special_kit.Boxing.HITS_TO_WIN;
+            // 头顶显示「剩余可被命中次数」，从 100 往下掉
+            setHealthPrefix(healthTeam1, need - boxingHits.getOrDefault(u2, 0));
+            setHealthPrefix(healthTeam2, need - boxingHits.getOrDefault(u1, 0));
+        } else {
+            setHealthPrefix(healthTeam1, hpValue(player(u1)));
+            setHealthPrefix(healthTeam2, hpValue(player(u2)));
+        }
     }
 
-    private static void setHealthPrefix(org.bukkit.scoreboard.Team team, Player p) {
+    private static int hpValue(Player p) {
+        if (p == null || p.isDead()) return 0;
+        return Math.max(0, (int) Math.ceil(p.getHealth()));
+    }
+
+    private static void setHealthPrefix(org.bukkit.scoreboard.Team team, int value) {
         if (team == null) return;
-        double hp = (p == null || p.isDead()) ? 0 : p.getHealth();
-        int hearts = (int) Math.ceil(hp / 2.0);
-        if (hearts < 0) hearts = 0;
-        if (hearts > 10) hearts = 10;
+        if (value < 0) value = 0;
         try {
             team.prefix(net.kyori.adventure.text.Component.text(
-                    "❤" + hearts + " ",
+                    "❤" + value + " ",
                     net.kyori.adventure.text.format.NamedTextColor.RED));
         } catch (Throwable ignored) {}
     }

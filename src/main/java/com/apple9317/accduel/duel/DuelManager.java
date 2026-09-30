@@ -620,6 +620,8 @@ public class DuelManager {
         if (rounds < 1) rounds = 1;
         // 偶数回合数会让「先赢一半以上」永远无法达成，向上取整为奇数
         if (rounds % 2 == 0) rounds++;
+        // boxing 按累计命中定胜负，强制一局
+        if (com.apple9317.accduel.kit.special_kit.Boxing.TYPE.equals(kit.id)) rounds = 1;
         Match match = new Match(plugin, this, search.arena, kit, a, b, rounds);
         matches.add(match);
         applyCooldown(a);

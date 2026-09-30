@@ -36,7 +36,7 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
     private final KitManager kits;
     private final StatsManager stats;
 
-    private static final List<String> POS_KEYS = List.of("pos1", "pos2", "miny", "maxy", "spawn", "bed", "save");
+    private static final List<String> POS_KEYS = List.of("pos1", "pos2", "miny", "spawn", "bed", "save");
     private static final List<String> SPAWN_COLORS = List.of("red", "blue");
 
     public DuelCommand(ACCDuelPlugin plugin) {
@@ -376,24 +376,6 @@ public class DuelCommand implements CommandExecutor, TabCompleter {
                 }
                 if (arenas.setMinY(id, y)) {
                     config.sendRaw(sender, "arena-set", Map.of("id", id, "pos", "miny=" + y));
-                } else {
-                    config.sendRaw(sender, "arena-not-found", Map.of("id", id));
-                }
-            }
-            case "maxy" -> {
-                double my;
-                if (extra.length > 0) {
-                    try {
-                        my = Double.parseDouble(extra[0]);
-                    } catch (NumberFormatException e) {
-                        config.sendRaw(sender, "arena-invalid-y", Map.of("y", extra[0]));
-                        return;
-                    }
-                } else {
-                    my = player.getLocation().getY();
-                }
-                if (arenas.setMaxY(id, my)) {
-                    config.sendRaw(sender, "arena-set", Map.of("id", id, "pos", "maxy=" + my));
                 } else {
                     config.sendRaw(sender, "arena-not-found", Map.of("id", id));
                 }

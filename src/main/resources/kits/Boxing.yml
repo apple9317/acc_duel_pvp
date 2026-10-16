@@ -1,0 +1,19 @@
+# ================================================
+# 竞技类型配置：boxing（拳击）
+# 攻击不掉血，先命中对方 100 下者胜
+# 服务端首次运行时自动生成，可自由编辑，/duel reload 生效
+# ================================================
+display-name: "<yellow>Boxing</yellow> <gray>(拳击)</gray>"
+icon: DIAMOND_SWORD
+description:
+  - "<gray>攻击不会造成伤害</gray>"
+  - "<gray>先命中对方 100 下者胜利</gray>"
+permission: ""
+enabled: true
+rules:
+  health: 20.0
+  food-level: 20
+items:
+  - slot: 0
+    material: DIAMOND_SWORD
+    amount: 1

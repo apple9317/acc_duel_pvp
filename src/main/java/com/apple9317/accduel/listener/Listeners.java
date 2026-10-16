@@ -277,15 +277,29 @@ public class Listeners implements Listener {
 
     // ---------------- 竞技场保护 ----------------
 
-    @EventHandler(ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onBlockBreak(BlockBreakEvent event) {
         Player p = event.getPlayer();
+        Block block = event.getBlock();
         Match match = manager.matchOf(p);
         if (match == null) return;
-        Block block = event.getBlock();
-        // bedfight：允许挖掉对方的床并标记床毁
-        if (match.isOpponentBedBlock(block, p)) {
-            match.notifyBedBroken(block, p);
+        // bedfight：按床归属处理
+        if (match.isBedFight()
+                && block.getBlockData() instanceof org.bukkit.block.data.type.Bed) {
+            String owner = match.classifyBed(block);
+            String team = match.teamOfPlayer(p);
+            if (owner == null) {
+                // 归属判定不出：诊断，并按「对方床」推断放行，避免床挖不掉
+                match.diagnoseBed(block, p);
+                String inferred = "red".equals(team) ? "blue" : "red";
+                event.setCancelled(false);
+                match.notifyBedBroken(block, p, inferred);
+            } else if (owner.equals(team)) {
+                event.setCancelled(true);   // 不能挖己方床
+            } else {
+                event.setCancelled(false);  // 对方床可挖
+                match.notifyBedBroken(block, p, owner);
+            }
             return;
         }
         // 其余方块仅允许破坏玩家自己放置的
@@ -342,8 +356,10 @@ public class Listeners implements Listener {
         if (!manager.inMatch(p)) return;
         Block block = event.getClickedBlock();
         if (block == null) return;
+        // 只处理右键交互；左键挖掘必须放行（bedfight 的床要能被挖）
+        if (event.getAction() != org.bukkit.event.block.Action.RIGHT_CLICK_BLOCK) return;
         Material type = block.getType();
-        // 只拦截真正可交互的方块；对着普通石头右键不该影响手中物品的使用
+        // 拦截可交互方块的右键（防开箱、睡觉等）
         if (type.isInteractable()) {
             event.setUseInteractedBlock(Event.Result.DENY);
         }
@@ -355,7 +371,10 @@ public class Listeners implements Listener {
         Player p = event.getPlayer();
         Match match = manager.matchOf(p);
         if (match == null || match.state() != Match.State.FIGHTING) return;
-        if (event.getNewGameMode() != GameMode.SURVIVAL) {
+        GameMode target = event.getNewGameMode();
+        // 旁观是插件击杀/死亡流程主动切换，必须放行
+        if (target == GameMode.SPECTATOR) return;
+        if (target != GameMode.SURVIVAL) {
             event.setCancelled(true);
         }
     }

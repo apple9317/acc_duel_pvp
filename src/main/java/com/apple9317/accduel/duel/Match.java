@@ -76,6 +76,8 @@ public class Match {
     private final Map<UUID, Long> outsideSince = new HashMap<>();
     /** boxing：每个选手的累计命中数。 */
     private final Map<UUID, Integer> boxingHits = new HashMap<>();
+    /** bedfight：两张床上方的提示盔甲架（key=red/blue）。 */
+    private final Map<String, org.bukkit.entity.ArmorStand> bedHints = new HashMap<>();
     // bedfight：双方床是否还在
     private boolean bedAlive1 = true;
     private boolean bedAlive2 = true;
@@ -233,6 +235,7 @@ public class Match {
 
         scheduleBoundaryCheck();
         registerHealthTeams();
+        if (isBedFight()) spawnBedHints();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (state != State.ENDED) beginRound(1);
         }, 40L);
@@ -449,11 +452,14 @@ public class Match {
         }, 20L, 10L);
     }
 
-    /** 越界/超高惩罚：普通模式本回合判负，bedfight 判死亡。 */
+    /** 越界/超高/低于 miny 惩罚：普通模式本回合判负，bedfight 判死亡。 */
     private void applyBoundaryPenalty(UUID offender) {
         UUID other = offender.equals(u1) ? u2 : u1;
         if (isBedFight()) {
-            bedFightResolve(player(offender), null);
+            Player v = player(offender);
+            eliminated.add(offender);   // 等待复活期间不参与边界判定
+            toSpectator(v);            // 立即旁观，停止下坠与虚空伤害
+            bedFightResolve(v, null);  // 床在倒计时重生，床没直接判负
         } else {
             scoreRound(other);
         }
@@ -528,7 +534,8 @@ public class Match {
         UUID deadU = victim.getUniqueId();
         if (!isFighter(deadU)) return;
         if (isBedFight()) {
-            toSpectator(victim);   // 定格死者，杀手保持活动
+            eliminated.add(victim.getUniqueId());   // 等待复活期间不参与边界判定
+            toSpectator(victim);                   // 死者切旁观定格，杀手保持活动
             bedFightResolve(victim, killer);
             return;
         }
@@ -578,17 +585,37 @@ public class Match {
         return u.equals(u1) ? bedAlive1 : bedAlive2;
     }
 
-    /** 床还在：提示，3 秒后把玩家重置到出生点并复原装备。 */
+    /** 床还在：大字倒计时，3 秒后把玩家重置到出生点并复原装备。 */
     private void scheduleBedRespawn(UUID vu) {
         Player victim = player(vu);
         if (victim != null) config.send(victim, "bed-respawn");
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (state == State.ENDED) return;
-            Player p = player(vu);
-            if (p == null) return;
-            prepareFighter(p, arena.entryPoint(vu.equals(u1)));
-            eliminated.remove(vu);
-        }, com.apple9317.accduel.kit.special_kit.BedFight.RESPAWN_DELAY);
+        final int total = (int) (com.apple9317.accduel.kit.special_kit.BedFight.RESPAWN_DELAY / 20L);
+        final int[] left = {total};
+        new org.bukkit.scheduler.BukkitRunnable() {
+            @Override public void run() {
+                if (state == State.ENDED) { cancel(); return; }
+                Player p = player(vu);
+                if (p == null) { cancel(); return; }
+                if (left[0] <= 0) {
+                    cancel();
+                    prepareFighter(p, arena.entryPoint(vu.equals(u1)));
+                    eliminated.remove(vu);
+                    return;
+                }
+                showRespawnTitle(p, left[0]);
+                p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 1f, 1f);
+                left[0]--;
+            }
+        }.runTaskTimer(plugin, 0L, 20L);
+    }
+
+    /** 重生倒计时大字。 */
+    private void showRespawnTitle(Player p, int seconds) {
+        Title title = Title.title(
+                Txt.mm("<yellow><bold>" + seconds + "</bold></yellow>"),
+                Txt.mm("<gray>秒后重生</gray>"),
+                Title.Times.times(Duration.ZERO, Duration.ofMillis(1100), Duration.ofMillis(100)));
+        p.showTitle(title);
     }
 
     /** 击杀后播报一句温和有趣的嘲讽。 */
@@ -606,26 +633,109 @@ public class Match {
         KillEffect.play(KillEffect.Type.fromString(effectId), victim, killer);
     }
 
-    /** 该方块是否为破坏者对方的床。 */
-    public boolean isOpponentBedBlock(org.bukkit.block.Block block, Player breaker) {
-        if (!isBedFight() || block == null || breaker == null) return false;
-        if (breaker.getUniqueId().equals(u1)) return arena.isTeamBed(block, false);
-        if (breaker.getUniqueId().equals(u2)) return arena.isTeamBed(block, true);
-        return false;
+    /** 床归属：red / blue；判定不出返回 null。 */
+    public String classifyBed(org.bukkit.block.Block block) {
+        if (arena.isTeamBed(block, true)) return "red";
+        if (arena.isTeamBed(block, false)) return "blue";
+        return null;
     }
 
-    /** 床被破坏：标记该队床毁并播报。 */
-    public void notifyBedBroken(org.bukkit.block.Block block, Player breaker) {
+    /** 玩家所属队伍：red / blue；不是选手返回 null。 */
+    public String teamOfPlayer(Player p) {
+        if (p == null) return null;
+        if (p.getUniqueId().equals(u1)) return "red";
+        if (p.getUniqueId().equals(u2)) return "blue";
+        return null;
+    }
+
+    /** 床归属判定失败时输出诊断。 */
+    public void diagnoseBed(org.bukkit.block.Block block, Player breaker) {
+        if (block.getBlockData() instanceof org.bukkit.block.data.type.Bed bd) {
+            org.bukkit.Location h = bd.getPart() == org.bukkit.block.data.type.Bed.Part.HEAD
+                    ? block.getLocation()
+                    : block.getRelative(bd.getFacing()).getLocation();
+            plugin.getLogger().warning("[床诊断] 破坏者=" + breaker.getName()
+                    + " 实际床头=(" + h.getWorld().getName() + " " + h.getBlockX()
+                    + "," + h.getBlockY() + "," + h.getBlockZ() + ")");
+            arena.logBedPoints(plugin.getLogger());
+        }
+    }
+
+    /** 床被破坏：标记该队床毁、移除床提示并播报；owner 为判定/推断出的归属。 */
+    public void notifyBedBroken(org.bukkit.block.Block block, Player breaker, String owner) {
         boolean redBed;
-        if (arena.isTeamBed(block, true)) redBed = true;
-        else if (arena.isTeamBed(block, false)) redBed = false;
-        else return;
+        if (owner != null) {
+            redBed = "red".equals(owner);
+        } else if (arena.isTeamBed(block, true)) {
+            redBed = true;
+        } else if (arena.isTeamBed(block, false)) {
+            redBed = false;
+        } else {
+            return;
+        }
         if (redBed) bedAlive1 = false; else bedAlive2 = false;
+        removeOneBedHint(redBed ? "red" : "blue");
         UUID teamU = redBed ? u1 : u2;
+        // 末影龙咆哮
+        block.getWorld().playSound(block.getLocation(),
+                Sound.ENTITY_ENDER_DRAGON_GROWL, 2.0f, 0.8f);
+        // 对方屏幕大字提示
+        Player victimPlayer = player(teamU);
+        if (victimPlayer != null) {
+            Title bedTitle = Title.title(
+                    Txt.mm("<red><bold>床已被摧毁</bold></red>"),
+                    Txt.mm("<gray>死亡后无法重生</gray>"),
+                    Title.Times.times(Duration.ofMillis(300),
+                            Duration.ofMillis(2500), Duration.ofMillis(500)));
+            victimPlayer.showTitle(bedTitle);
+        }
         config.broadcast("bed-broken", Map.of(
                 "player", nameOf(breaker.getUniqueId()),
                 "team", redBed ? "红队" : "蓝队",
                 "victim", nameOf(teamU)));
+    }
+
+    // ---------------- 床提示盔甲架 ----------------
+
+    /** bedfight 开局在两张床上方显示「请保护己方的床」。 */
+    private void spawnBedHints() {
+        spawnOneBedHint("red", arena.bedRed);
+        spawnOneBedHint("blue", arena.bedBlue);
+    }
+
+    private void spawnOneBedHint(String team, Arena.Point bed) {
+        if (bed == null) return;
+        org.bukkit.Location base = bed.resolve();
+        if (base == null) return;
+        org.bukkit.World w = base.getWorld();
+        org.bukkit.Location at = new org.bukkit.Location(w,
+                base.getX() + 0.5, base.getY() + 0.95, base.getZ() + 0.5);
+        try {
+            org.bukkit.entity.ArmorStand stand = w.spawn(at, org.bukkit.entity.ArmorStand.class, s -> {
+                s.setSmall(true);
+                s.setMarker(true);
+                s.setVisible(false);
+                s.setGravity(false);
+                s.customName(Txt.mm("<yellow>请保护己方的床</yellow>"));
+                s.setCustomNameVisible(true);
+                s.setPersistent(false);
+            });
+            bedHints.put(team, stand);
+        } catch (Throwable t) {
+            plugin.getLogger().warning("生成床提示失败: " + t.getMessage());
+        }
+    }
+
+    private void removeBedHints() {
+        for (org.bukkit.entity.ArmorStand s : bedHints.values()) {
+            if (s != null && !s.isDead()) s.remove();
+        }
+        bedHints.clear();
+    }
+
+    private void removeOneBedHint(String team) {
+        org.bukkit.entity.ArmorStand s = bedHints.remove(team);
+        if (s != null && !s.isDead()) s.remove();
     }
 
     /** 弃权（退出/命令），直接结束比赛。 */
@@ -763,6 +873,7 @@ public class Match {
             eliminated.clear();
         outsideSince.clear();
         boxingHits.clear();
+            removeBedHints();
             manager.onMatchEnd(this);
         }
     }
@@ -894,6 +1005,7 @@ public class Match {
             eliminated.clear();
         outsideSince.clear();
         boxingHits.clear();
+            removeBedHints();
             manager.onMatchEnd(this);
         }
     }
@@ -971,6 +1083,12 @@ public class Match {
             healthTeam2 = obtainTeam(sb, "ad" + id + "b");
             healthTeam1.addEntry(name1);
             healthTeam2.addEntry(name2);
+            if (isBedFight()) {
+                try {
+                    healthTeam1.setColor(org.bukkit.ChatColor.RED);
+                    healthTeam2.setColor(org.bukkit.ChatColor.BLUE);
+                } catch (Throwable ignored) {}
+            }
             updateHealthPrefixes();
         } catch (Throwable t) {
             plugin.getLogger().warning("注册血量队伍失败: " + t.getMessage());

@@ -248,6 +248,18 @@ public class Arena {
                 && head.getBlockZ() == (int) Math.floor(bed.z);
     }
 
+    /** 输出记录的床点（诊断用）。 */
+    public void logBedPoints(java.util.logging.Logger logger) {
+        logger.warning("[床诊断] 记录 bedRed=" + pointDesc(bedRed)
+                + " bedBlue=" + pointDesc(bedBlue));
+    }
+
+    private static String pointDesc(Point p) {
+        if (p == null || !p.isSet()) return "未设置";
+        return "(" + p.world + " " + (int) Math.floor(p.x) + ","
+                + (int) Math.floor(p.y) + "," + (int) Math.floor(p.z) + ")";
+    }
+
     private static double sq(double v) {
         return v * v;
     }
